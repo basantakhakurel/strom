@@ -1,6 +1,17 @@
-#include <iostream>
+#include <iostream>	
+#include "node.hpp"
+#include "tree.hpp"
+#include "tree_manip.hpp"
 
-int main(int argc, char* argv[]) {
-    std::cout << "Hello World!" << std::endl;
+using namespace strom;
+
+const double Node::_smallest_edge_length = 1.0e-12;
+
+int main(int argc, const char * argv[]) {
+    std::cout << "Starting..." << std::endl;
+    TreeManip tm;
+    tm.createTestTree();
+    std::cout << "\nFinished!" << std::endl;
+
     return 0;
 }
