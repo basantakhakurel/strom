@@ -12,6 +12,7 @@ project(
 cpp = meson.get_compiler('cpp')
 lib_ncl = cpp.find_library('ncl', dirs: ['/home/basanta/lib/static'], required: true)
 incl_ncl = include_directories('/home/basanta/include')
+incl_boost = include_directories('/home/basanta/Documents/libraries/boost_1_86_0')
 
 executable(
   'strom',
