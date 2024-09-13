@@ -119,7 +119,7 @@ namespace strom
 
     catch (XStrom &x)
     {
-      std::cerr << "Strom encountered a problem:(\n " < x.what() << std::endl;
+      std::cerr << "Strom encountered a problem:(\n " << x.what() << std::endl;
     }
 
     std::cout << "\nFinished!" << std::endl;
