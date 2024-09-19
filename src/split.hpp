@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 
 #include <vector>
 #include <memory>
@@ -14,7 +14,7 @@ namespace strom {
                                                                     Split();
                                                                     Split(const Split & other);
                                                                     ~Split();
-            
+
             Split &                                                 operator=(const Split & other);
             bool                                                    operator==(const Split & other) const;
             bool                                                    operator<(const Split & other) const;
@@ -59,7 +59,7 @@ namespace strom {
         _nleaves = 0;
         _bits_per_unit = (CHAR_BIT)*sizeof(Split::split_unit_t);
         clear();
-        std::cout << "Constructing a Split" << std::endl;
+        // std::cout << "Constructing a Split" << std::endl;
     }
 
     inline Split::Split(const Split & other) {
@@ -67,11 +67,11 @@ namespace strom {
         _nleaves = other._nleaves;
         _bits_per_unit = (CHAR_BIT)*sizeof(Split::split_unit_t);
         _bits = other._bits;
-        std::cout << "Constructing a Split by copying an existing split" << std::endl;
+        // std::cout << "Constructing a Split by copying an existing split" << std::endl;
     }
 
     inline Split::~Split() {
-        std::cout << "Destroying a Split" << std::endl;
+        // std::cout << "Destroying a Split" << std::endl;
     }
 
     inline void Split::clear() {
@@ -93,21 +93,21 @@ namespace strom {
     inline bool Split::operator<(const Split & other) const {
         assert(_bits.size() == other._bits.size());
         return (_bits < other._bits);
-    } 
+    }
 
     inline void Split::resize(unsigned nleaves) {
         _nleaves = nleaves;
         unsigned nunits = 1 + ((nleaves - 1)/_bits_per_unit);
         _bits.resize(nunits);
 
-        // create mask used to select only those bits used in final unit 
+        // create mask used to select only those bits used in final unit
         unsigned num_unused_bits = nunits*_bits_per_unit - _nleaves;
         unsigned num_used_bits = _bits_per_unit - num_unused_bits;
         _mask = 0L;
         split_unit_t unity = 1;
         for (unsigned i = 0; i < num_used_bits; i++)
             _mask |= (unity << i);
-        
+
         clear();
     }
 
@@ -127,7 +127,7 @@ namespace strom {
         return (bool)(_bits[unit_index] & bit_to_set);
     }
 
-    inline void Split::addSplit(const Split & other) { 
+    inline void Split::addSplit(const Split & other) {
         unsigned nunits = (unsigned)_bits.size();
         assert(nunits == other._bits.size());
         for (unsigned i = 0; i < nunits; ++i) {
@@ -135,7 +135,7 @@ namespace strom {
         }
     }
 
-    inline std::string Split::createPatternRepresentation() const { 
+    inline std::string Split::createPatternRepresentation() const {
         std::string s;
         unsigned ntax_added = 0;
         for (unsigned i = 0; i < _bits.size(); ++i) {
@@ -153,7 +153,7 @@ namespace strom {
         return s;
     }
 
-    inline bool Split::isEquivalent(const Split & other) const { 
+    inline bool Split::isEquivalent(const Split & other) const {
         unsigned nunits = (unsigned)_bits.size();
         assert(nunits > 0);
 
@@ -194,7 +194,7 @@ namespace strom {
         return true;
     }
 
-    inline bool Split::isCompatible(const Split & other) const { 
+    inline bool Split::isCompatible(const Split & other) const {
         for (unsigned i = 0; i < _bits.size(); ++i) {
             split_unit_t a = _bits[i];
             split_unit_t b = other._bits[i];
@@ -211,7 +211,7 @@ namespace strom {
         return true;
     }
 
-    inline bool Split::conflictsWith(const Split & other) const { 
+    inline bool Split::conflictsWith(const Split & other) const {
         return !isCompatible(other);
     }
 

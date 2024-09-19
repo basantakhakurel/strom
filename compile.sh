@@ -4,7 +4,7 @@
 BASE_DIR=$(pwd)
 SRC_DIR="$BASE_DIR/src"
 BUILD_DIR="$BASE_DIR/build"
-INSTALL_DIR="$BASE_DIR/distr"
+INSTALL_DIR="$BASE_DIR/"
 
 # Create the build dir if it does not already exist
 if [ ! -d "$BUILD_DIR" ]; then

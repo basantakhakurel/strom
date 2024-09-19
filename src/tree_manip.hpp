@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 
 #include <cassert>
 #include <memory>
@@ -12,13 +12,13 @@
 #include "xstrom.hpp"
 
 namespace strom {
-    
+
     class TreeManip {
         public:
                                     TreeManip();
                                     TreeManip(Tree::SharedPtr t);
                                     ~TreeManip();
-        
+
             void                    setTree(Tree::SharedPtr t);
             Tree::SharedPtr         getTree();
 
@@ -46,7 +46,7 @@ namespace strom {
             void                    extractEdgeLen(Node * nd, std::string edge_length_string);
             unsigned                countNewickLeaves(const std::string newick);
             void                    stripOutNexusComments(std::string & newick);
-            bool                    canHaveSibling(Node * nd, bool rooted, bool allow_polytomies); 
+            bool                    canHaveSibling(Node * nd, bool rooted, bool allow_polytomies);
 
 
             Tree::SharedPtr         _tree;
@@ -58,18 +58,18 @@ namespace strom {
     };
 
     inline TreeManip::TreeManip() {
-        std::cout << "Constructing a TreeManip" << std::endl;
+        // std::cout << "Constructing a TreeManip" << std::endl;
         clear();
     }
 
     inline TreeManip::TreeManip(Tree::SharedPtr t) {
-        std::cout << "Constructing a TreeManip with a supplied tree" << std::endl;
+        // std::cout << "Constructing a TreeManip with a supplied tree" << std::endl;
         clear();
         setTree(t);
     }
 
     inline TreeManip::~TreeManip() {
-        std::cout << "Destroying a TreeManip" << std::endl;
+        // std::cout << "Destroying a TreeManip" << std::endl;
     }
 
     inline void TreeManip::clear() {
@@ -114,7 +114,7 @@ namespace strom {
         Node * first_leaf           = &_tree->_nodes[3];
         Node * second_leaf          = &_tree->_nodes[4];
         Node * third_leaf           = &_tree->_nodes[5];
-        
+
 
                                             // Here is the structure of the tree (numbers in
                                             // parentheses are node numbers, other numbers
@@ -176,12 +176,12 @@ namespace strom {
         third_leaf->_number             = 2;
         third_leaf->_name               = "third leaf";
         third_leaf->_edge_length        = 0.2;
-    
+
         _tree->_is_rooted          = true;
         _tree->_root               = root_node;
         _tree->_nleaves            = 3;
-        
-        // Note that root node is not included in _preorder 
+
+        // Note that root node is not included in _preorder
         _tree->_preorder.push_back(first_internal);
         _tree->_preorder.push_back(second_internal);
         _tree->_preorder.push_back(first_leaf);
@@ -262,7 +262,7 @@ namespace strom {
         return newick;
     }
 
-    inline void TreeManip::extractNodeNumberFromName(Node * nd, std::set<unsigned> & used) { 
+    inline void TreeManip::extractNodeNumberFromName(Node * nd, std::set<unsigned> & used) {
         assert(nd);
         bool success = true;
         unsigned x = 0;
@@ -289,9 +289,9 @@ namespace strom {
         }
         else
             throw XStrom(boost::str(boost::format("node name (%s) not interpretable as a positive integer") % nd->_name));
-    } 
+    }
 
-    inline void TreeManip::extractEdgeLen(Node * nd, std::string edge_length_string) {  
+    inline void TreeManip::extractEdgeLen(Node * nd, std::string edge_length_string) {
         assert(nd);
         bool success = true;
         double d = 0.0;
@@ -311,19 +311,19 @@ namespace strom {
             throw XStrom(boost::str(boost::format("%s is not interpretable as an edge length") % edge_length_string));
     }
 
-    inline unsigned TreeManip::countNewickLeaves(const std::string newick) {    
+    inline unsigned TreeManip::countNewickLeaves(const std::string newick) {
         std::regex taxonexpr("[(,]\\s*(\\d+|\\S+?|['].+?['])\\s*(?=[,):])");
         std::sregex_iterator m1(newick.begin(), newick.end(), taxonexpr);
         std::sregex_iterator m2;
         return (unsigned)std::distance(m1, m2);
-    } 
+    }
 
-    inline void TreeManip::stripOutNexusComments(std::string & newick) {    
+    inline void TreeManip::stripOutNexusComments(std::string & newick) {
         std::regex commentexpr("\\[.*?\\]");
         newick = std::regex_replace(newick, commentexpr, std::string(""));
-    }   
+    }
 
-    inline Node * TreeManip::findNextPreorder(Node * nd) {  
+    inline Node * TreeManip::findNextPreorder(Node * nd) {
         assert(nd);
         Node * next = 0;
         if (!nd->_left_child && !nd->_right_sib) {
@@ -356,7 +356,7 @@ namespace strom {
         return next;
     }
 
-    inline void TreeManip::refreshPreorder() {  
+    inline void TreeManip::refreshPreorder() {
         // Create vector of node pointers in preorder sequence
         _tree->_preorder.clear();
         _tree->_preorder.reserve(_tree->_nodes.size() - 1); // _preorder does not include root node
@@ -381,7 +381,7 @@ namespace strom {
         }   // end while loop
     }
 
-    inline void TreeManip::refreshLevelorder() {    
+    inline void TreeManip::refreshLevelorder() {
         if (!_tree->_root)
             return;
 
@@ -420,9 +420,9 @@ namespace strom {
         }   // end while loop
     }
 
-    inline void TreeManip::renumberInternals() {    
+    inline void TreeManip::renumberInternals() {
         assert(_tree->_preorder.size() > 0);
-        
+
         // Renumber internal nodes in postorder sequence
         unsigned curr_internal = _tree->_nleaves;
         for (auto nd : boost::adaptors::reverse(_tree->_preorder)) {
@@ -431,24 +431,24 @@ namespace strom {
                 nd->_number = curr_internal++;
             }
         }
-        
+
         // Root node is not included in _tree->_preorder, so if the root node
         // is an internal node we need to number it here
         if (_tree->_is_rooted)
             _tree->_root->_number = curr_internal++;
-            
+
         _tree->_ninternals = curr_internal - _tree->_nleaves;
-            
-        // If the tree has polytomies, then there are Node objects stored in 
+
+        // If the tree has polytomies, then there are Node objects stored in
         // the _tree->_nodes vector that have not yet been numbered. These can
         // be identified because their _number is currently equal to -1.
         for (auto & nd : _tree->_nodes) {
             if (nd._number == -1)
                 nd._number = curr_internal++;
-        } 
+        }
     }
 
-    inline bool TreeManip::canHaveSibling(Node * nd, bool rooted, bool allow_polytomies) {  
+    inline bool TreeManip::canHaveSibling(Node * nd, bool rooted, bool allow_polytomies) {
         assert(nd);
         if (!nd->_parent) {
             // trying to give root node a sibling
@@ -480,9 +480,9 @@ namespace strom {
     }
 
 
-    // here the tip node (a leaf) serves at the root node for unrooted trees only 
+    // here the tip node (a leaf) serves at the root node for unrooted trees only
 
-    inline void TreeManip::rerootAtNodeNumber(int node_number) {    
+    inline void TreeManip::rerootAtNodeNumber(int node_number) {
         // Locate node having _number equal to node_number
         Node * nd = 0;
         for (auto & curr : _tree->_nodes) {
@@ -503,7 +503,7 @@ namespace strom {
     }
 
 
-    inline void TreeManip::rerootAtNode(Node * prospective_root) {  
+    inline void TreeManip::rerootAtNode(Node * prospective_root) {
         Node * a = prospective_root;
         Node * b = prospective_root->_parent;
         Node * c = 0;
@@ -561,7 +561,7 @@ namespace strom {
         refreshLevelorder();
     }
 
-    inline void TreeManip::buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies) {  
+    inline void TreeManip::buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies) {
         _tree.reset(new Tree());
         _tree->_is_rooted = rooted;
 
@@ -628,7 +628,7 @@ namespace strom {
 
             // loop through the characters in newick, building up tree as we go
             unsigned position_in_string = 0;
-            for (auto ch : commentless_newick) {    
+            for (auto ch : commentless_newick) {
                 position_in_string++;
 
                 if (inside_quoted_name) {
@@ -815,7 +815,7 @@ namespace strom {
         }
     }
 
-    inline void TreeManip::storeSplits(std::set<Split> & splitset) {    
+    inline void TreeManip::storeSplits(std::set<Split> & splitset) {
         // Start by clearing and resizing all splits
         for (auto & nd : _tree->_nodes) {
             nd._split.resize(_tree->_nleaves);

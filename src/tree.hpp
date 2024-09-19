@@ -11,7 +11,7 @@ namespace strom {
     //class Updater;
 
     class Tree {
-        
+
         friend class TreeManip;
         // friend class Likelihood;
         // friend class Updater;
@@ -40,16 +40,16 @@ namespace strom {
         public:
 
             typedef std::shared_ptr< Tree >     SharedPtr;
-    };  
+    };
 
     inline Tree::Tree() {
-        std::cout << "Constructing a Tree" << std::endl;
+        // std::cout << "Constructing a Tree" << std::endl;
         clear();
-        
+
     }
 
     inline Tree::~Tree() {
-        std::cout << "Destroying a Tree" << std::endl;
+        // std::cout << "Destroying a Tree" << std::endl;
     }
 
     inline void Tree::clear() {

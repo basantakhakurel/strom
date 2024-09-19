@@ -1,4 +1,4 @@
-#pragma once    
+#pragma once
 
 #include <set>
 #include <map>
@@ -38,11 +38,11 @@ namespace strom {
     };
 
     inline TreeSummary::TreeSummary() {
-        std::cout << "Constructing a TreeSummary" << std::endl;
+        // std::cout << "Constructing a TreeSummary" << std::endl;
     }
-    
+
     inline TreeSummary::~TreeSummary() {
-        std::cout << "Destroying a TreeSummary" << std::endl;
+        // std::cout << "Destroying a TreeSummary" << std::endl;
     }
 
     inline Tree::SharedPtr TreeSummary::getTree(unsigned index) {
@@ -57,19 +57,19 @@ namespace strom {
         return tm.getTree();
     }
 
-    inline std::string TreeSummary::getNewick(unsigned index) { 
+    inline std::string TreeSummary::getNewick(unsigned index) {
         if (index >= _newicks.size())
             throw XStrom("getNewick called with index >= number of stored trees");
 
         return _newicks[index];
     }
 
-    inline void TreeSummary::clear() {  
+    inline void TreeSummary::clear() {
         _treeIDs.clear();
         _newicks.clear();
     }
 
-    inline void TreeSummary::readTreefile(const std::string filename, unsigned skip) {  
+    inline void TreeSummary::readTreefile(const std::string filename, unsigned skip) {
         TreeManip tm;
         Split::treeid_t splitset;
 
@@ -133,7 +133,7 @@ namespace strom {
         nexusReader.DeleteBlocksFromFactories();
     }
 
-    inline void TreeSummary::showSummary() const {  
+    inline void TreeSummary::showSummary() const {
         // Produce some output to show that it works
         std::cout << boost::str(boost::format("\nRead %d trees from file") % _newicks.size()) << std::endl;
 
@@ -163,4 +163,4 @@ namespace strom {
         }
     }
 
-}  
+}

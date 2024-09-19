@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 
 #include <string>
 #include <vector>
@@ -17,11 +17,11 @@ namespace strom {
         friend class TreeManip;
         // friend class Likelihood;
         // friend class Updater;
-        
+
         public:
             Node();
             ~Node();
-            
+
             Node *          getParent()         {return _parent;}
             Node *          getLeftChild()      {return _left_child;}
             Node *          getRightSib()       {return _right_sib;}
@@ -52,12 +52,12 @@ namespace strom {
     };
 
     inline Node::Node() {
-        std::cout << "Creating Node object" << std::endl;
+        // std::cout << "Creating Node object" << std::endl;
         clear();
     }
 
     inline Node::~Node() {
-        std::cout << "Destroying Node object" << std::endl;
+        // std::cout << "Destroying Node object" << std::endl;
     }
 
     inline void Node::clear() {
@@ -73,6 +73,3 @@ namespace strom {
         _edge_length = (v < _smallest_edge_length ? _smallest_edge_length : v);
     }
 }
-
-
-
