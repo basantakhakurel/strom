@@ -1,10 +1,10 @@
 project('strom', 'cpp',
-        default_options : ['cpp_std=c++11','cpp_link_args=-static','prefix=/home/basanta/projects/strom/'],
+        default_options : ['cpp_std=c++11', 'cpp_link_args=-static', 'prefix=/home/basanta/projects/strom/'],
         version : '1.0')
 
 cpp = meson.get_compiler('cpp')
 lib_program_options = cpp.find_library('boost_program_options', dirs: ['/home/basanta/lib/static'], required: true)
-lib_ncl = cpp.find_library('ncl', dirs: ['/home/basanta/lib/static'], required: true)
+lib_ncl = cpp.find_library('ncl', dirs: ['/home/basanta/lib/static'], static: true, required: true)
 incl_ncl = include_directories('/home/basanta/include')
 incl_boost = include_directories('/home/basanta/Documents/libraries/boost_1_86_0')
 

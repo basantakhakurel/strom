@@ -890,7 +890,7 @@ namespace strom
       }
       renumberInternals();
     }
-    catch (XStrom x)
+    catch (XStrom &x)
     {
       clear();
       throw x;
