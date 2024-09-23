@@ -3,14 +3,16 @@ project('strom', 'cpp',
         version : '1.0')
 
 cpp = meson.get_compiler('cpp')
+lib_program_options = cpp.find_library('boost_program_options', dirs: ['/home/basanta/lib/static'], required: true)
 lib_ncl = cpp.find_library('ncl', dirs: ['/home/basanta/lib/static'], required: true)
 incl_ncl = include_directories('/home/basanta/include')
+incl_boost = include_directories('/home/basanta/Documents/libraries/boost_1_86_0')
 
 executable('strom',
             'main.cpp',
             install: true,
             install_dir: get_option('prefix'),
-            dependencies: lib_ncl,
-            include_directories: [incl_ncl])
+            dependencies: [lib_ncl,lib_program_options],
+            include_directories: [incl_ncl,incl_boost])
 
 install_data('test.tre', install_dir: get_option('prefix'))

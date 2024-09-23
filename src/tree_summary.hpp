@@ -68,12 +68,14 @@ namespace strom
     return _newicks[index];
   }
 
+  // simply empties the tree ID and newicks vectors.
   inline void TreeSummary::clear()
   {
     _treeIDs.clear();
     _newicks.clear();
   }
 
+  // read the tree file specified by the file name.
   inline void TreeSummary::readTreefile(const std::string filename, unsigned skip)
   {
     TreeManip tm;
@@ -147,6 +149,7 @@ namespace strom
     nexusReader.DeleteBlocksFromFactories();
   }
 
+  // reports the information stored in tree ID
   inline void TreeSummary::showSummary() const
   {
     // Produce some output to show that it works

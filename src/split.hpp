@@ -129,12 +129,14 @@ namespace strom
     _bits[unit_index] |= bit_to_set;
   }
 
+  // gives the unit at the supplied unit index.
   inline Split::split_unit_t Split::getBits(unsigned unit_index) const
   {
     assert(unit_index < _bits.size());
     return _bits[unit_index];
   }
 
+  // find if the bit corresponding a certain taxon is set.
   inline bool Split::getBitAt(unsigned leaf_index) const
   {
     unsigned unit_index = leaf_index / _bits_per_unit;
@@ -144,6 +146,7 @@ namespace strom
     return (bool)(_bits[unit_index] & bit_to_set);
   }
 
+  // create a union of some taxon set.
   inline void Split::addSplit(const Split &other)
   {
     unsigned nunits = (unsigned)_bits.size();
