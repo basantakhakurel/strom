@@ -113,7 +113,7 @@ namespace strom
   // function that returns the subset index of the subset that corresponds to the subset name provided
   inline unsigned Partition::findSubsetByName(const std::string &subset_name) const
   {
-    auto iter = std::find(_subset_names.begin(), subset_name.end(), subset_name);
+    auto iter = std::find(_subset_names.begin(), _subset_names.end(), subset_name);
     if (iter == _subset_names.end())
       throw XStrom(boost::format("Specified subset name \"%s\" not found in partition") % subset_name);
     return (unsigned)std::distance(_subset_names.begin(), iter);

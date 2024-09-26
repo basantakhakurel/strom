@@ -132,7 +132,7 @@ namespace strom
 
     try
     {
-      std::cout << "\n*** Reading and storing the data in the file" << _data_file_name << std::endl;
+      std::cout << "\n*** Reading and storing the data in the file " << _data_file_name << std::endl;
       _data = Data::SharedPtr(new Data());
       _data->setPartition(_partition);
       _data->getDataFromFile(_data_file_name);
