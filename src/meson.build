@@ -10,6 +10,7 @@ project(
 )
 
 cpp = meson.get_compiler('cpp')
+lib_filesystem = cpp.find_library('boost_filesystem', dirs: ['/home/basanta/lib/static'], required = true)
 lib_program_options = cpp.find_library('boost_program_options', dirs: ['/home/basanta/lib/static'], required: true)
 lib_ncl = cpp.find_library('ncl', dirs: ['/home/basanta/lib/static'], static: true, required: true)
 incl_ncl = include_directories('/home/basanta/include')
@@ -20,8 +21,9 @@ executable(
   'main.cpp',
   install: true,
   install_dir: get_option('prefix'),
-  dependencies: [lib_ncl, lib_program_options],
+  dependencies: [lib_ncl, lib_program_options,lib_filesystem],
   include_directories: [incl_ncl, incl_boost],
 )
-#   /home/basanta/lib64
+install_data('strom.conf', install_dir: get_option('prefix'))
 install_data('test.tre', install_dir: get_option('prefix'))
+install_data('rbcL.nex', install_dir: get_option('prefix'))

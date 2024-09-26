@@ -343,6 +343,196 @@ namespace strom
     unsigned ntax = 0;
     if (taxa_block_index == 0)
     {
+      // First taxa block encountered in the file
+      _taxon_names.clear();
+      for (auto s : taxaBlock->GetAllLabels())
+        _taxon_names.push_back(s);
+      ntax = (unsigned)_taxon_names.size();
+      _data_matrix.resize(ntax);
+    }
+    else
+    {
+      // Second (or later) taxa block encountered in the file
+      // Check to ensure taxa block is identical to the first one
+      for (auto s : taxaBlock->GetAllLabels())
+      {
+        if (_taxon_names[ntax++] != s)
+          throw XStrom(boost::format("Taxa block %d in data file is not identical to first taxa block read") % (taxa_block_index + 1));
+      }
+    }
+    return ntax;
+  }
+
+  // helper function used by the getDataFromFile function
+  // stores the data from a Nexus data and ensures that the data type specified in any partition definition is consistent with the data type of the data/characters block
+  inline unsigned Data::storeData(unsigned ntax, unsigned nchar_before, NxsCharactersBlock *charBlock, NxsCharactersBlock::DataTypesEnum datatype)
+  {
+    unsigned seqlen = 0;
+
+    // First the data type for the partition subset containing the first site in this NxsCharactersBlock
+    // Assumes that all the sites in any NxsCharactersBlock have the same type (i.e. mixed not allowed)
+    assert(_partition);
+    unsigned subset_index = _partition->findSubsetForSite(nchar_before + 1); // remember that sites begin at 1, not 0, in partition definition
+    DataType dt = _partition->getDataTypeForSubset(subset_index);
+
+    // Determine number of states and bail out if data type not handled
+    // 1 = standard, 2 = dna, 3 = rna, 4 = nucleotide, 5 = protein, 6 = continuous, 7 = codon, 8 = mixed
+    NxsCharactersBlock *block = charBlock;
+    if (datatype == NxsCharactersBlock::dna || datatype == NxsCharactersBlock::rna || datatype == NxsCharactersBlock::nucleotide)
+    {
+      if (dt.isCodon())
+      {
+        // Create a NxsCharactersBlock containing codons rather than nucleotides
+        block = NxsCharactersBlock::NewCodonsCharactersBlock(
+            charBlock,
+            true,  // map partial ambiguities to completely missing (note: false is not yet implemented in NCL)
+            true,  // gaps to missing
+            true,  // inactive characters treated as missing
+            NULL,  // if non-NULL, specifies the indices of the positions in the gene
+            NULL); // if non-NULL, specifies a pointer to a NxsCharactersBlock that contains all non-coding positions in gene
+      }
+      else
+      {
+        if (!dt.isNucleotide())
+          throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from the file has data type \"nucleotide\"") % dt.getDataTypeAsString());
+      }
+    }
+    else if (datatype == NxsCharactersBlock::protein)
+    {
+      if (!dt.isProtein())
+        throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from the file has data type \"protein\"") % dt.getDataTypeAsString());
+    }
+    else if (datatype == NxsCharactersBlock::standard)
+    {
+      if (!dt.isStandard())
+        throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from the file has data type \"standard\"") % dt.getDataTypeAsString());
+      assert(charBlock->GetSymbols());
+      std::string symbols = std::string(charBlock->GetSymbols());
+      dt.setStandardNumStates((unsigned)symbols.size());
+    }
+    else
+    {
+      // ignore block because data type is not one that is supported
+      return nchar_before;
+    }
+
+    unsigned num_states = dt.getNumStates();
+
+    // Make sure all states can be accomodated in a variable of type state_t
+    unsigned bits_in_state_t = 8 * sizeof(state_t);
+    if (num_states > bits_in_state_t)
+      throw XStrom(boost::format("This program can only process data types with fewer than %d states") % bits_in_state_t);
+
+    // Copy data matrix from NxsCharactersBlock object to data_matrix
+    // Loop through all taxa, processing one row from block for each taxon
+    for (unsigned t = 0; t < ntax; ++t)
+    {
+      const NxsDiscreteStateRow &row = block->GetDiscreteMatrixRow(t);
+      if (seqlen == 0)
+        seqlen = (unsigned)row.size();
+      _data_matrix[t].resize(nchar_before + seqlen);
+
+      // Loop through all sites/characters in row corresponding to taxon t
+      unsigned k = nchar_before;
+      for (int raw_state_code : row)
+      {
+        // For codon model, raw_state_code ranges from 0-63, but deletion of stop codons means fewer state codes
+        state_t state = std::numeric_limits<state_t>::max(); // complete ambiguity, all bits set
+        bool complete_ambiguity = (!dt.isCodon() && raw_state_code == (int)num_states);
+        bool all_missing_or_gaps = (raw_state_code < 0);
+        if ((!complete_ambiguity) && (!all_missing_or_gaps))
+        {
+          int state_code = raw_state_code;
+          if (dt.isCodon())
+            state_code = dt.getGeneticCode()->getStateCode(raw_state_code);
+
+          if (state_code < (int)num_states)
+          {
+            state = (state_t)1 << state_code;
+          }
+          else
+          {
+            // incomplete ambiguity (NCL state code > num_states)
+            const NxsDiscreteDatatypeMapper *mapper = block->GetDatatypeMapperForChar(k - nchar_before);
+            const std::set<NxsDiscreteStateCell> &state_set = mapper->GetStateSetForCode(raw_state_code);
+            state = 0;
+            for (auto s : state_set)
+            {
+              state |= (state_t)1 << s;
+            }
+          }
+        }
+        _data_matrix[t][k++] = state;
+      }
+    }
+    return seqlen;
+  }
+
+  // this function makes use of NCL to read and parse the data file
+  inline void Data::getDataFromFile(const std::string filename)
+  {
+    // See http://phylo.bio.ku.edu/ncldocs/v2.1/funcdocs/index.html for documentation
+    //
+    // -1 means "process all blocks found" (this is a bit field and -1 fills the bit field with 1s)
+    // Here are the bits (and nexus blocks) that are defined:
+    //     enum NexusBlocksToRead
+    //     {
+    //         NEXUS_TAXA_BLOCK_BIT = 0x01,
+    //         NEXUS_TREES_BLOCK_BIT = 0x02,
+    //         NEXUS_CHARACTERS_BLOCK_BIT = 0x04,
+    //         NEXUS_ASSUMPTIONS_BLOCK_BIT = 0x08,
+    //         NEXUS_SETS_BLOCK_BIT = 0x10,
+    //         NEXUS_UNALIGNED_BLOCK_BIT = 0x20,
+    //         NEXUS_DISTANCES_BLOCK_BIT = 0x40,
+    //         NEXUS_UNKNOWN_BLOCK_BIT = 0x80
+    //     };
+    MultiFormatReader nexusReader(-1, NxsReader::WARNINGS_TO_STDERR);
+    try
+    {
+      nexusReader.ReadFilepath(filename.c_str(), MultiFormatReader::NEXML_FORMAT);
+    }
+    catch (...)
+    {
+      nexusReader.DeleteBlocksFromFactories();
+      throw;
+    }
+
+    // Commit to storing new data
+    clear();
+
+    // Ensure that Data::setPartition was called before reading data
+    assert(_partition);
+
+    int numTaxaBlocks = nexusReader.GetNumTaxaBlocks();
+    if (numTaxaBlocks == 0)
+      throw XStrom("No taxa blocks were found in the data file");
+
+    unsigned cum_nchar = 0;
+    for (int i = 0; i < numTaxaBlocks; ++i)
+    {
+      NxsTaxaBlock *taxaBlock = nexusReader.GetTaxaBlock(i);
+      unsigned ntax = storeTaxonNames(taxaBlock, i);
+      const unsigned numCharBlocks = nexusReader.GetNumCharactersBlocks(taxaBlock);
+      for (unsigned j = 0; j < numCharBlocks; ++j)
+      {
+        NxsCharactersBlock *charBlock = nexusReader.GetCharactersBlock(taxaBlock, j);
+        NxsCharactersBlock::DataTypesEnum datatype = charBlock->GetOriginalDataType();
+        cum_nchar += storeData(ntax, cum_nchar, charBlock, datatype);
+      }
+    }
+
+    // No longer any need to store raw data from nexus file
+    nexusReader.DeleteBlocksFromFactories();
+
+    // Compress _data_matrix so that it holds only unique patterns (counts stored in _pattern_counts)
+    if (_data_matrix.empty())
+    {
+      std::cout << "No data were stored from the file \"" << filename << "\"" << std::endl;
+      clear();
+    }
+    else
+    {
+      compressPatterns();
     }
   }
 
