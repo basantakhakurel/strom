@@ -19,7 +19,7 @@ jobs:
         sudo apt-get install -y ninja-build meson g++ libboost-program-options-dev libboost-filesystem-dev libncl-dev
           
     - name: Create build directory
-      run: cd src && meson setup builddir
+      run: cd src && meson setup builddir -Dbuildfile=meson.build.ci
       
     - name: Compile project
       run: meson compile -C builddir
