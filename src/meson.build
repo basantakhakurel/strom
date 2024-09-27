@@ -27,3 +27,4 @@ executable(
 install_data('strom.conf', install_dir: get_option('prefix'))
 install_data('test.tre', install_dir: get_option('prefix'))
 install_data('rbcL.nex', install_dir: get_option('prefix'))
+install_data('datatest.nex', install_dir: get_option('prefix'))
