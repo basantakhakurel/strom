@@ -369,10 +369,10 @@ namespace strom
   {
     unsigned seqlen = 0;
 
-    // First the data type for the partition subset containing the first site in this NxsCharactersBlock
-    // Assumes that all the sites in any NxsCharactersBlock have the same type (i.e. mixed not allowed)
+    // Find the data type for the partition subset containing the first site in this NxsCharactersBlock
+    // Assumes that all sites in any given NxsCharactersBlock have the same type (i.e. mixed not allowed)
     assert(_partition);
-    unsigned subset_index = _partition->findSubsetForSite(nchar_before + 1); // remember that sites begin at 1, not 0, in partition definition
+    unsigned subset_index = _partition->findSubsetForSite(nchar_before + 1); // remember that sites begin at 1, not 0, in partition definitions
     DataType dt = _partition->getDataTypeForSubset(subset_index);
 
     // Determine number of states and bail out if data type not handled
@@ -394,18 +394,18 @@ namespace strom
       else
       {
         if (!dt.isNucleotide())
-          throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from the file has data type \"nucleotide\"") % dt.getDataTypeAsString());
+          throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from file has data type \"nucleotide\"") % dt.getDataTypeAsString());
       }
     }
     else if (datatype == NxsCharactersBlock::protein)
     {
       if (!dt.isProtein())
-        throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from the file has data type \"protein\"") % dt.getDataTypeAsString());
+        throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from file has data type \"protein\"") % dt.getDataTypeAsString());
     }
     else if (datatype == NxsCharactersBlock::standard)
     {
       if (!dt.isStandard())
-        throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from the file has data type \"standard\"") % dt.getDataTypeAsString());
+        throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from file has data type \"standard\"") % dt.getDataTypeAsString());
       assert(charBlock->GetSymbols());
       std::string symbols = std::string(charBlock->GetSymbols());
       dt.setStandardNumStates((unsigned)symbols.size());
@@ -418,15 +418,16 @@ namespace strom
 
     unsigned num_states = dt.getNumStates();
 
-    // Make sure all states can be accomodated in a variable of type state_t
+    // Make sure all states can be accommodated in a variable of type state_t
     unsigned bits_in_state_t = 8 * sizeof(state_t);
     if (num_states > bits_in_state_t)
       throw XStrom(boost::format("This program can only process data types with fewer than %d states") % bits_in_state_t);
 
-    // Copy data matrix from NxsCharactersBlock object to data_matrix
+    // Copy data matrix from NxsCharactersBlock object to _data_matrix
     // Loop through all taxa, processing one row from block for each taxon
     for (unsigned t = 0; t < ntax; ++t)
     {
+
       const NxsDiscreteStateRow &row = block->GetDiscreteMatrixRow(t);
       if (seqlen == 0)
         seqlen = (unsigned)row.size();
@@ -465,6 +466,7 @@ namespace strom
         _data_matrix[t][k++] = state;
       }
     }
+
     return seqlen;
   }
 
@@ -489,7 +491,7 @@ namespace strom
     MultiFormatReader nexusReader(-1, NxsReader::WARNINGS_TO_STDERR);
     try
     {
-      nexusReader.ReadFilepath(filename.c_str(), MultiFormatReader::NEXML_FORMAT);
+      nexusReader.ReadFilepath(filename.c_str(), MultiFormatReader::NEXUS_FORMAT);
     }
     catch (...)
     {
@@ -535,5 +537,4 @@ namespace strom
       compressPatterns();
     }
   }
-
 }

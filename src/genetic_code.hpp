@@ -2,8 +2,6 @@
 
 #include "xstrom.hpp"
 #include <boost/algorithm/string.hpp>
-#include <map>
-#include <iostream>
 
 namespace strom
 {
@@ -165,7 +163,7 @@ namespace strom
     for (unsigned i = 0; i < 20; ++i)
     {
       char aa = _all_amino_acids[i];
-      _amino_acid_map[aa] = 1;
+      _amino_acid_map[aa] = i;
     }
 
     ensureGeneticCodeNameIsValid(_genetic_code_name);
@@ -184,7 +182,7 @@ namespace strom
         _codons.push_back(_all_codons[k]);
         _amino_acids.push_back(_amino_acid_map[ch]);
       }
-      k++;
+      ++k;
     }
   }
 

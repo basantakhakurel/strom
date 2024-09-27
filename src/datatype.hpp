@@ -67,8 +67,8 @@ namespace strom
   inline void DataType::setCodon()
   {
     _datatype = 2;
-    _num_states = _genetic_code->getNumNonStopCodons();
     _genetic_code = GeneticCode::SharedPtr(new GeneticCode("standard")); // this can be changed with setGeneticCode() function.
+    _num_states = _genetic_code->getNumNonStopCodons();
   }
 
   // setting to a protein data
@@ -97,10 +97,12 @@ namespace strom
   {
     return (_datatype == 2);
   }
+
   inline bool DataType::isProtein() const
   {
     return (_datatype == 3);
   }
+
   inline bool DataType::isStandard() const
   {
     return (_datatype == 4);

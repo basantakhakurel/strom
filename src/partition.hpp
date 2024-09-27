@@ -1,7 +1,5 @@
 #pragma once
 
-#include <regex>
-#include <iterator>
 #include <tuple>
 #include <limits>
 #include <cmath>
@@ -15,6 +13,7 @@
 
 namespace strom
 {
+
   class Partition
   {
   public:
@@ -64,20 +63,23 @@ namespace strom
     const unsigned _infinity;
   };
 
+  // member function
+
   // constructor
   inline Partition::Partition() : _infinity(std::numeric_limits<unsigned>::max())
   {
-    // std:;cout << "Constructing a Partition" << std::endl;
+    // std::cout << "Constructing a Partition" << std::endl;
     clear();
   }
 
-  // descructor
+  // destructor
   inline Partition::~Partition()
   {
     // std::cout << "Destroying a Partition" << std::endl;
   }
 
   // accessor functions - provide access to the values stored in the private data members but do not allow you to change those variables
+
   inline unsigned Partition::getNumSites() const
   {
     return _num_sites;
@@ -105,7 +107,7 @@ namespace strom
     return _subset_data_types[subset_index];
   }
 
-  inline const Partition::datatype_vect_t &Partition::getSubsetDataTypes() const
+  inline const std::vector<DataType> &Partition::getSubsetDataTypes() const
   {
     return _subset_data_types;
   }
@@ -164,7 +166,7 @@ namespace strom
   // function returning a vector of subset sizes using the same approach as the numSitesInSubset function
   inline std::vector<unsigned> Partition::calcSubsetSizes() const
   {
-    assert(_num_sites > 0); // only makes sense to call this function after the subsets are defined
+    assert(_num_sites > 0); // only makes sense to call this function after subsets are defined
     std::vector<unsigned> nsites_vect(_num_subsets, 0);
     for (auto &t : _subset_ranges)
     {
@@ -192,7 +194,7 @@ namespace strom
     _subset_ranges.push_back(std::make_tuple(1, _infinity, 1, 0));
   }
 
-  // function that provides the primary route by which partition subsets are added.
+  // function that provides the primary route by which partition subsets are added
   inline void Partition::parseSubsetDefinition(std::string &s)
   {
     std::vector<std::string> v;
@@ -206,7 +208,7 @@ namespace strom
     std::string subset_definition = v[1];
 
     // now see if before_colon contains a data type specification in square brackets
-    const char *pattern_string = R"((.+?\s*(\[\S+?)\])*)";
+    const char *pattern_string = R"((.+?)\s*(\[(\S+?)\])*)";
     std::regex re(pattern_string);
     std::smatch match_obj;
     bool matched = std::regex_match(before_colon, match_obj, re);
@@ -220,8 +222,8 @@ namespace strom
     // match_obj[1] equals the subset label (e.g. "rbcL")
 
     // Two more elements will exist if the user has specified a data type for this partition subset
-    // match_obj[2] equals data type inside the square brackets (e.g. "[codon:standard]")
-    // match_obj[3] equals data type only (e.g. "standard")
+    // match_obj[2] equals data type inside square brackets (e.g. "[codon:standard]")
+    // match_obj[3] equals data type only (e.g. "codon:standard")
 
     std::string subset_name = match_obj[1].str();
     DataType dt; // nucleotide by default
@@ -242,7 +244,7 @@ namespace strom
       }
       else if (datatype == "codon")
       {
-        dt.setCodon(); // assumes the standard genetic code
+        dt.setCodon(); // assumes standard genetic code
       }
       else if (datatype == "protein")
       {
@@ -258,9 +260,10 @@ namespace strom
       }
       else
       {
-        throw XStrom(boost::format("Datatype \"%s\" specified for subset(s) \"%s\" is invalid: must be either nucleotide, codon, protein, standard") % datatype % subset_name);
+        throw XStrom(boost::format("Datatype \"%s\" specified for subset(s) \"%s\" is invalid: must be either nucleotide, codon, protein, or standard") % datatype % subset_name);
       }
     }
+
     // Remove default subset if there is one
     unsigned end_site = std::get<1>(_subset_ranges[0]);
     if (_num_subsets == 1 && end_site == _infinity)
@@ -296,7 +299,7 @@ namespace strom
   inline void Partition::addSubsetRange(unsigned subset_index, std::string range_definition)
   {
     // match patterns like these: "1-.\3" "1-1000" "1001-."
-    const char *pattern_string = R"((\d+)\s*(-\s*[0-9.]+)(\\\s*(\d+))*)*)";
+    const char *pattern_string = R"((\d+)\s*(-\s*([0-9.]+)(\\\s*(\d+))*)*)";
     std::regex re(pattern_string);
     std::smatch match_obj;
     bool matched = std::regex_match(range_definition, match_obj, re);
@@ -327,7 +330,7 @@ namespace strom
     }
   }
 
-  // function taking regec_match_t and attempting to interpret it as an integer
+  // function taking regex_match_t and attempting to interpret it as an integer
   inline int Partition::extractIntFromRegexMatch(regex_match_t s, unsigned min_value)
   {
     int int_value = min_value;
@@ -336,7 +339,7 @@ namespace strom
       std::string str_value = s.str();
       try
       {
-        int value = std::stoi(str_value);
+        int_value = std::stoi(str_value);
       }
       catch (std::invalid_argument)
       {
@@ -346,7 +349,7 @@ namespace strom
       // sanity check
       if (int_value < (int)min_value)
       {
-        throw XStrom(boost::format("Value specified in parition subset definition (%d) is lower than the minimum value (%d)") % int_value % min_value);
+        throw XStrom(boost::format("Value specified in partition subset definition (%d) is lower than minimum value (%d)") % int_value % min_value);
       }
     }
     return int_value;
@@ -365,17 +368,17 @@ namespace strom
       return;
     }
 
-    // First sanity check
-    // nsites is the number of sites read in from the data file
-    // _num_sites is the maximum site index specified in any partition subset
-    // These numbers should be the same
+    // First sanity check:
+    //   nsites is the number of sites read in from a data file;
+    //   _num_sites is the maximum site index specified in any partition subset.
+    //   These two numbers should be the same.
     if (_num_sites != nsites)
     {
       throw XStrom(boost::format("Number of sites specified by the partition (%d) does not match actual number of sites (%d)") % _num_sites % nsites);
     }
 
-    // Second sanity check: ensure that no sites were left out of all parition subsets
-    // Third sanity check: ensure that no sites were included in multiple partition subsets
+    // Second sanity check: ensure that no sites were left out of all partition subsets
+    // Third sanity check: ensure that no sites were included in more than one partition subset
     std::vector<int> tmp(nsites, -1); // begin with -1 for all sites
     for (auto &t : _subset_ranges)
     {
@@ -393,7 +396,7 @@ namespace strom
     }
     if (std::find(tmp.begin(), tmp.end(), -1) != tmp.end())
     {
-      throw XStrom("Some sites were not included in any partition subset!");
+      throw XStrom("Some sites were not included in any partition subset");
     }
     tmp.clear();
   }
