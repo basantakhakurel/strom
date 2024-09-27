@@ -1,0 +1,23 @@
+project(
+  'strom-ci',
+  'cpp',
+  default_options: [
+    'cpp_std=c++11',
+    'cpp_link_args=-static',
+    'prefix=/home/runner/strom-ci',
+  ],
+  version: '1.0',
+)
+
+cpp = meson.get_compiler('cpp')
+lib_filesystem = cpp.find_library('boost_filesystem', dirs: ['/usr/lib'], required: true)
+lib_program_options = cpp.find_library('boost_program_options', dirs: ['/usr/lib'], required: true)
+lib_ncl = cpp.find_library('ncl', dirs: ['/usr/lib'], static: true, required: true)
+
+executable(
+  'strom',
+  'main.cpp',
+  install: true,
+  install_dir: get_option('prefix'),
+  dependencies: [lib_ncl, lib_program_options, lib_filesystem],
+)
