@@ -241,7 +241,7 @@ namespace strom
   inline void Likelihood::setRooted(bool is_rooted)
   {
     assert(_instances.size() == 0 || _rooted == is_rooted); // can't change rooting status after initBeagleLib is called
-    _rooted == is_rooted;
+    _rooted = is_rooted;
   }
 
   // function that determines if BeagleLib should be usisng GPU resources
@@ -293,7 +293,7 @@ namespace strom
       instance_pair_t p = std::make_pair(nstates, nrates);
 
       // add combo to set
-      nstates_ncateg_combination.insert(p);
+      nstates_ncateg_combinations.insert(p);
       subsets_for_pair[p].push_back(subset);
     }
 
@@ -405,60 +405,65 @@ namespace strom
       for (auto &row : _data->getDataMatrix())
       {
 
-        // loop through all patterns in this subset
-        auto interval = _data->getSubsetBeginEnd(s);
-        for (unsigned p = interval.first; p < interval.second; p++)
+        // Loop through all subsets assigned to this instance
+        unsigned k = 0;
+        for (unsigned s : info.subsets)
         {
 
-          // d is the state for taxon t, pattern p (in subset s)
-          // d is stored as a bit field (e.g., for nucleotide data, A = 1, C = 2, G = 4, T = *, ? = 15),
-          // but BeagleLib expects states to be integers (e.g., for nucleotide data,
-          // A = 0, C = 1, G = 2, T = 3, ? = 4).
-
-          Data::state_t d = row[p];
-
-          // Handle common nucleotide case separately
-          if (info.nstates == 4)
+          // Loop through all patterns in this subset
+          auto interval = _data->getSubsetBeginEnd(s);
+          for (unsigned p = interval.first; p < interval.second; p++)
           {
-            if (d == 1)
-              states[k++] = 0;
-            else if (d == 2)
-              states[k++] = 1;
-            else if (d == 4)
-              states[k++] = 2;
-            else if (d == 8)
-              states[k++] = 3;
-            else
-              states[k++] = 4;
-          }
-          else
-          {
-            // This case is for any other data type except nucleotide
-            int s = -1;
-            for (unsigned b = 0; b < info.nstates; b++)
+
+            // d is the state for taxon t, pattern p (in subset s)
+            // d is stored as a bit field (e.g., for nucleotide data, A=1, C=2, G=4, T=8, ?=15),
+            // but BeagleLib expects states to be integers (e.g. for nucleotide data,
+            // A=0, C=1, G=2, T=3, ?=4).
+            Data::state_t d = row[p];
+
+            // Handle common nucleotide case separately
+            if (info.nstates == 4)
             {
-              if (d == one << b)
-              {
-                s = b;
-                break;
-              }
+              if (d == 1)
+                states[k++] = 0;
+              else if (d == 2)
+                states[k++] = 1;
+              else if (d == 4)
+                states[k++] = 2;
+              else if (d == 8)
+                states[k++] = 3;
+              else
+                states[k++] = 4;
             }
-            if (s == -1)
-              states[k++] = info.nstates;
             else
-              states[k++] = s;
-          }
-        } // pattern loop
-      } // subset loop
+            {
+              // This case is for any other data type except nucleotide
+              int s = -1;
+              for (unsigned b = 0; b < info.nstates; b++)
+              {
+                if (d == one << b)
+                {
+                  s = b;
+                  break;
+                }
+              }
+              if (s == -1)
+                states[k++] = info.nstates;
+              else
+                states[k++] = s;
+            }
+          } // pattern loop
+        } // subset loop
 
-      int code = beagleSetTipStates(
-          info.handle, // Instance number
-          t,           // Index of destination compactBuffer
-          &states[0]); // Pointer to compact states vector
+        int code = beagleSetTipStates(
+            info.handle, // Instance number
+            t,           // Index of destination compactBuffer
+            &states[0]); //  Pointer to compact states vector
 
-      if (code != 0)
-        throw XStrom(boost::format("failed to set tip state for taxon %d (\"%s\"; BeagleLib error code was %d)") % (t + 1) % _data->getTaxonNames()[t] % code % _beagle_error[code]);
-      ++t;
+        if (code != 0)
+          throw XStrom(boost::format("failed to set tip state for taxon %d (\"%s\"; BeagleLib error code was %d)") % (t + 1) % _data->getTaxonNames()[t] % code % _beagle_error[code]);
+        ++t;
+      }
     }
   }
 
@@ -479,7 +484,7 @@ namespace strom
 
       // loop through all rows of the data matrix, setting the tip states for one taxon each row
       unsigned t = 0;
-      for (auto &row : _data->getDataMatrix)
+      for (auto &row : _data->getDataMatrix())
       {
 
         // loop through all subsets assigned to this instance
@@ -593,7 +598,7 @@ namespace strom
       {
 
         // Loop through all patterns in this subsets
-        auto interval = _data->getSubsetBeginEnds(s);
+        auto interval = _data->getSubsetBeginEnd(s);
         for (unsigned p = interval.first; p < interval.second; p++)
         {
           v[pattern_index++] = pattern_counts[p];
@@ -631,9 +636,15 @@ namespace strom
 
         code = beagleSetCategoryRatesWithIndex(
             info.handle,                    // instance number
+            instance_specific_subset_index, // subset index
+            rates);                         // vector containing rate scalers
+        if (code != 0)
+          throw XStrom(boost::str(boost::format("Failed to set category rates for BeagleLib instance %d. BeagleLib error code was %d (%s)") % info.handle % code % _beagle_error[code]));
+
+        code = beagleSetCategoryWeights(
+            info.handle,                    // Instance number
             instance_specific_subset_index, // Index of category weights buffer
             probs);                         // Category weights array (categoryCount)
-
         if (code != 0)
           throw XStrom(boost::str(boost::format("Failed to set category probabilities for BeagleLib instance %d. BeagleLib error code was %d (%s)") % info.handle % code % _beagle_error[code]));
       }
@@ -728,7 +739,7 @@ namespace strom
         // an operation to compute the partials for this node
         Node *lchild = nd->_left_child;
         assert(lchild);
-        Node *rchild = nd->_right_child;
+        Node *rchild = lchild->_right_sib;
         assert(rchild);
         queuePartialsRecalculation(nd, lchild, rchild);
       }
@@ -756,16 +767,18 @@ namespace strom
   }
 
   // function to add an entry to the _operations vector of each BeagleLib instance
-  inline void Likelihood::queuePartialsRecalculation(Node * nd, Node * lchild, Node * rchild) {
-        for (auto & info : _instances) {
-            unsigned instance_specific_subset_index = 0;
-            for (unsigned s : info.subsets) {
-                addOperation(info, nd, lchild, rchild, instance_specific_subset_index);
-                ++instance_specific_subset_index;
-            }
-        }
+  inline void Likelihood::queuePartialsRecalculation(Node *nd, Node *lchild, Node *rchild)
+  {
+    for (auto &info : _instances)
+    {
+      unsigned instance_specific_subset_index = 0;
+      for (unsigned s : info.subsets)
+      {
+        addOperation(info, nd, lchild, rchild, instance_specific_subset_index);
+        ++instance_specific_subset_index;
+      }
     }
-
+  }
 
   // function to add operations
   inline void Likelihood::addOperation(InstanceInfo & info, Node * nd, Node * lchild, Node * rchild, unsigned subset_index) {
@@ -921,7 +934,7 @@ namespace strom
     int state_frequency_index = 0;
     int category_weights_index = 0;
     int cumulative_scale_index = BEAGLE_OP_NONE;
-    int child_partials_index = getPartialIndex(t-<_root, info);
+    int child_partials_index = getPartialIndex(t->_root, info);
     int parent_partials_index = getPartialIndex(t->_preorder[0], info);
     int parent_tmatrix_index = getTMatrixIndex(t->_preorder[0], info, 0);
 
@@ -1006,7 +1019,7 @@ namespace strom
     assert(t->_root->_number == 0 && t->_root->_left_child == t->_preorder[0] && !t->_preorder[0]->_right_sib);
 
     setModelRateMatrix();
-    setAmongSiteRateHeterogenetity();
+    setAmongSiteRateHeterogeneity();
     defineOperations(t);
     updateTransitionMatrices();
     calculatePartials();

@@ -142,7 +142,7 @@ namespace strom
 
   inline void Strom::run()
   {
-    std::cout << "Starting......" << std::endl;
+    std::cout << "Starting..." << std::endl;
     std::cout << "Current working directory: " << boost::filesystem::current_path() << std::endl;
 
     try
@@ -155,46 +155,45 @@ namespace strom
       // Report information about data partition subsets
       unsigned nsubsets = _data->getNumSubsets();
       std::cout << "\nNumber of taxa: " << _data->getNumTaxa() << std::endl;
-      std::cout << "Number of partition susets: " << nsubsets << std::endl;
+      std::cout << "Number of partition subsets: " << nsubsets << std::endl;
       for (unsigned subset = 0; subset < nsubsets; subset++)
       {
         DataType dt = _partition->getDataTypeForSubset(subset);
-        std::cout << " Subset " << (subset + 1) << " (" << _data->getSubsetName(subset) << ")" << std::endl;
+        std::cout << "  Subset " << (subset + 1) << " (" << _data->getSubsetName(subset) << ")" << std::endl;
         std::cout << "    data type: " << dt.getDataTypeAsString() << std::endl;
         std::cout << "    sites:     " << _data->calcSeqLenInSubset(subset) << std::endl;
         std::cout << "    patterns:  " << _data->getNumPatternsInSubset(subset) << std::endl;
         std::cout << "    ambiguity: " << (_ambig_missing || dt.isCodon() ? "treated as missing data (faster)" : "handled appropriately (slower)") << std::endl;
       }
+
+      std::cout << "\n*** Resources available to BeagleLib " << _likelihood->beagleLibVersion() << ":\n";
+      std::cout << _likelihood->availableResources() << std::endl;
+
+      std::cout << "\n*** Creating the likelihood calculator" << std::endl;
+      _likelihood = Likelihood::SharedPtr(new Likelihood());
+      _likelihood->setPreferGPU(_use_gpu);
+      _likelihood->setAmbiguityEqualsMissing(_ambig_missing);
+      _likelihood->setData(_data);
+      _likelihood->initBeagleLib();
+
+      std::cout << "\n*** Reading and storing the first tree in the file " << _tree_file_name << std::endl;
+      _tree_summary = TreeSummary::SharedPtr(new TreeSummary());
+      _tree_summary->readTreefile(_tree_file_name, 0);
+      Tree::SharedPtr tree = _tree_summary->getTree(0);
+
+      if (tree->numLeaves() != _data->getNumTaxa())
+        throw XStrom(boost::format("Number of taxa in tree (%d) does not equal the number of taxa in the data matrix (%d)") % tree->numLeaves() % _data->getNumTaxa());
+
+      std::cout << "\n*** Calculating the likelihood of the tree" << std::endl;
+      double lnL = _likelihood->calcLogLikelihood(tree);
+      std::cout << boost::str(boost::format("log likelihood = %.5f") % lnL) << std::endl;
+      std::cout << "      (expecting -278.83767)" << std::endl;
+    }
+    catch (XStrom &x)
+    {
+      std::cerr << "Strom encountered a problem:\n  " << x.what() << std::endl;
     }
 
-    std::cout << "\n*** Resources available to BeagleLib " << _likelihood->beagleLibVersion() << ":\n";
-    std::cout << _likelihood->availableResources() << std::endl;
-
-    std::cout << "\n*** Creating the likelihood calculator" << std::endl;
-    _likelihood = Likelihood::SharedPtr(new Likelihood());
-    _likelihood->setPreferGPU(_use_gpu);
-    _likelihood->setAmbiguityEqualsMissing(_ambig_missing);
-    _likelihood->setData(_data);
-    _likelihood->initBeagleLib();
-
-    std::cout << "\n*** Reading and storing the first tree in the file " << _tree_file_name << std::endl;
-    _tree_summary = TreeSummary::SharedPtr(new TreeSummary());
-    _tree_summary->readTreefile(_tree_file_name, 0);
-    Tree::SharedPtr tree = _tree_summary->getTree(0);
-
-    if (tree->numLeaves() != _data->getNumTaxa())
-      throw XStrom(boost::format("Number of taxa in tree (%d) does not equal the number of taxa in the data matrix (%d)") % tree->numLeaves() % _data->getNumTaxa());
-
-    std::cout << "\n*** Calculating the likelihood of the tree" << std::endl;
-    double lnL = _likelihood->calcLogLikelihood(tree);
-    std::cout << boost::str(boost::format("log likelihood = %.5f") % lnL) << std::endl;
-    std::cout << "      (expecting -278.83767)" << std::endl;
+    std::cout << "\nFinished!" << std::endl;
   }
-  catch (XStrom &x)
-  {
-    std::cerr << "Strom encountered a problem:\n  " << x.what() << std::endl;
-  }
-
-  std::cout << "\nFinished!" << std::endl;
-}
 }
