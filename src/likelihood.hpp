@@ -25,14 +25,15 @@ namespace strom
     void setAmbiguityEqualsMissing(bool ambig_equals_missing);
 
     bool usingStoredData() const;
-    void useStoredData(boos using_data);
+    void useStoredData(bool using_data);
 
-    std::string beagleLibVersion();
+    std::string beagleLibVersion() const;
     std::string availableResources() const;
-    std::string usedResources();
+    std::string usedResources() const;
 
     void initBeagleLib();
     void finalizeBeagleLib(bool use_exceptions);
+
     double calcLogLikelihood(Tree::SharedPtr t);
 
     Data::SharedPtr getData();
@@ -47,7 +48,7 @@ namespace strom
     struct InstanceInfo
     {
       int handle;
-      inst resourcenumber;
+      int resourcenumber;
       std::string resourcename;
       unsigned nstates;
       unsigned nratecateg;
@@ -109,12 +110,14 @@ namespace strom
   };
 
   // member functions
+  // constructor
   inline Likelihood::Likelihood()
   {
     // std::cout << "Constructing a Likelihood" << std::endl;
     clear();
   }
 
+  // destructor
   inline Likelihood::~Likelihood()
   {
     // std::cout << "Destroying a Likelihood" << std::endl;
@@ -140,7 +143,7 @@ namespace strom
   inline void Likelihood::finalizeBeagleLib(bool use_exceptions)
   {
     // Close down all BeagleLib instances if active
-    for (auto infor : _instances)
+    for (auto info : _instances)
     {
       if (info.handle >= 0)
       {
@@ -178,7 +181,7 @@ namespace strom
     _subset_indices.assign(1, 0);
     _parent_indices.assign(1, 0);
     _child_indices.assign(1, 0);
-    _tmatrix_indices.assing(1, 0);
+    _tmatrix_indices.assign(1, 0);
     _weights_indices.assign(1, 0);
     _freqs_indices.assign(1, 0);
     _scaling_indices.assign(1, 0);
@@ -227,7 +230,7 @@ namespace strom
     return _data;
   }
 
-  inline void Likelihod::setData(Data::SharedPtr data)
+  inline void Likelihood::setData(Data::SharedPtr data)
   {
     assert(_instances.size() == 0);
     assert(!data->getDataMatrix().empty());
@@ -391,7 +394,7 @@ namespace strom
   {
     assert(_instances.size() > 0);
     assert(_data);
-    Data::state_i one = 1;
+    Data::state_t one = 1;
 
     for (auto &info : _instances)
     {
@@ -465,7 +468,7 @@ namespace strom
   {
     assert(_instances.size() > 0);
     assert(_data);
-    Data::state_i one = 1;
+    Data::state_t one = 1;
 
     for (auto &info : _instances)
     {
@@ -523,6 +526,497 @@ namespace strom
     }
   }
 
-  // setPatternPartitionAssignments member function
+  // function that specifies the subset to which every pattern belongs
+  inline void Likelihood::setPatternPartitionAssignments()
+  {
+    assert(_instances.size() > 0);
+    assert(_data);
 
+    // beagleSetPatternPartitions does not need to be called if data are unpartitioned
+    // (and, in fact, BeagleLib only supports partitions for 4-state instances if GPU is used),
+    // so not calling beagleSetPatternPartitions allows unpartitioned codon model analyses)
+    if (_instances.size() == 1 && _instances[0].subsets.size() == 1)
+      return;
+
+    Data::partition_key_t v;
+
+    // Loop through all instances
+    for (auto &info : _instances)
+    {
+      unsigned nsubsets = (unsigned)info.subsets.size();
+      v.resize(info.npatterns);
+      unsigned pattern_index = 0;
+
+      // Loop through all subsets assigned to this instance
+      unsigned instance_specific_subset_index = 0;
+      for (unsigned s : info.subsets)
+      {
+        // Loop through all patterns in this subset
+        auto interval = _data->getSubsetBeginEnd(s);
+        for (unsigned p = interval.first; p < interval.second; p++)
+        {
+          v[pattern_index++] = instance_specific_subset_index;
+        }
+        ++instance_specific_subset_index;
+      }
+
+      int code = beagleSetPatternPartitions(
+          info.handle, // instance number
+          nsubsets,    // number of data subsets (equals 1 if data are unpartitioned)
+          &v[0]        // vector of subset indices: v[i] = 0 means pattern i is in subset 0
+      );
+
+      if (code != 0)
+      {
+        throw XStrom(boost::format("failed to set pattern partition. BeagleLib error code was %d (%s)") % code % _beagle_error[code]);
+      }
+    }
+  }
+
+  // function to count how many sites exhibit each site pattern in the dataset
+  inline void Likelihood::setPatternWeights()
+  {
+    assert(_instances.size() > 0);
+    assert(_data);
+    Data::pattern_counts_t v;
+    auto pattern_counts = _data->getPatternCounts();
+    assert(pattern_counts.size() > 0);
+
+    // Loop through all instances
+    for (auto &info : _instances)
+    {
+      v.resize(info.npatterns);
+      unsigned pattern_index = 0;
+
+      // Loop through all subsets assigned to this instance
+      for (unsigned s : info.subsets)
+      {
+
+        // Loop through all patterns in this subsets
+        auto interval = _data->getSubsetBeginEnds(s);
+        for (unsigned p = interval.first; p < interval.second; p++)
+        {
+          v[pattern_index++] = pattern_counts[p];
+        }
+      }
+
+      int code = beagleSetPatternWeights(
+          info.handle, // instance number
+          &v[0]        // vector of pattern counts: v[i] = 123 means pattern i was encountered 123 times
+      );
+
+      if (code != 0)
+        throw XStrom(boost::format("Failed to set pattern weights for instance %d. BeagleLib error code was %d (%s)") % info.handle % code % _beagle_error[code]);
+    }
+  }
+
+  // function of set up among site rate heterogeniety
+  // beagle wants an array of relative substitution rates and a corresponding array of rate probabilities
+  inline void Likelihood::setAmongSiteRateHeterogeneity()
+  {
+    assert(_instances.size() > 0);
+    int code = 0;
+
+    // For now we are assuming rates among sites are equal
+    double rates[1] = {1.0};
+    double probs[1] = {1.0};
+
+    // Loop through all instances
+    for (auto &info : _instances)
+    {
+
+      // Loop through all subsets assigned to this instance
+      for (unsigned instance_specific_subset_index = 0; instance_specific_subset_index < info.subsets.size(); instance_specific_subset_index++)
+      {
+
+        code = beagleSetCategoryRatesWithIndex(
+            info.handle,                    // instance number
+            instance_specific_subset_index, // Index of category weights buffer
+            probs);                         // Category weights array (categoryCount)
+
+        if (code != 0)
+          throw XStrom(boost::str(boost::format("Failed to set category probabilities for BeagleLib instance %d. BeagleLib error code was %d (%s)") % info.handle % code % _beagle_error[code]));
+      }
+    }
+  }
+
+  // function to set the rate matrix for the model
+  inline void Likelihood::setModelRateMatrix()
+  {
+    assert(_instances.size() > 0);
+    int code = 0;
+    double state_freqs[4] = {0.25, 0.25, 0.25, 0.25};
+
+    double eigenvalues[4] = {
+        -4.0 / 3.0,
+        -4.0 / 3.0,
+        -4.0 / 3.0,
+        0.0};
+
+    double eigenvectors[16] = {
+        -1, -1, -1, 1,
+        0, 0, 1, 1,
+        0, 1, 0, 1,
+        1, 0, 0, 1};
+
+    double inverse_eigenvectors[16] = {
+        -0.25, -0.25, -0.25, 0.75,
+        -0.25, -0.25, 0.75, -0.25,
+        -0.25, 0.75, -0.25, -0.25,
+        0.25, 0.25, 0.25, 0.25};
+
+    // Loop through all instances
+    for (auto &info : _instances)
+    {
+
+      // loop through all subsets assigned to this instance
+      for (unsigned instance_specific_subset_index = 0; instance_specific_subset_index < info.subsets.size(); instance_specific_subset_index++)
+      {
+        code = beagleSetStateFrequencies(
+            info.handle,                    // Instance number
+            instance_specific_subset_index, // Index of state frequencies buffer
+            state_freqs);                   // State frequencies array (stateCount)
+        if (code != 0)
+          throw XStrom(boost::str(boost::format("Failed to set state frequencies for BeagleLib instance %d. BeagleLib error code was %d (%s)") % info.handle % code % _beagle_error[code]));
+
+        code = beagleSetEigenDecomposition(
+            info.handle,                          // Instance number
+            instance_specific_subset_index,       // Index of eigen-decomposition buffer
+            (const double *)eigenvectors,         // Flattened matrix (stateCount x stateCount) of eigenvectors
+            (const double *)inverse_eigenvectors, // Flattened matrix (stateCount x stateCount) of inverse-eigenvectors
+            eigenvalues);                         // Vector of eigenvalues
+        if (code != 0)
+          throw XStrom(boost::str(boost::format("Failed to set eigen decomposition for BeagleLib instance %d. BeagleLib error code was %d (%s)") % info.handle % code % _beagle_error[code]));
+      }
+    }
+  }
+
+  // function to feed operations to BeagleLib
+  inline void Likelihood::defineOperations(Tree::SharedPtr t)
+  {
+    assert(_instances.size() > 0);
+    assert(t);
+    assert(t->isRooted() == _rooted);
+
+    _relrate_normalizing_constant = 1.0; // assuming subset rates all 1.0 for now
+
+    // Start with a clean slate
+    for (auto &info : _instances)
+    {
+      _operations[info.handle].clear();
+      _pmatrix_index[info.handle].clear();
+      _edge_lengths[info.handle].clear();
+      _eigen_indices[info.handle].clear();
+      _category_rate_indices[info.handle].clear();
+    }
+
+    // Loop through all nodes in reverse level order
+    for (auto nd : boost::adaptors::reverse(t->_levelorder))
+    {
+      assert(nd->_number >= 0);
+      if (!nd->_left_child)
+      {
+        // This is a leaf
+        queueTMatrixRecalculation(nd);
+      }
+      else
+      {
+        // This is an internal node
+        queueTMatrixRecalculation(nd);
+
+        // Internal nodes have partials to be calculated, so define
+        // an operation to compute the partials for this node
+        Node *lchild = nd->_left_child;
+        assert(lchild);
+        Node *rchild = nd->_right_child;
+        assert(rchild);
+        queuePartialsRecalculation(nd, lchild, rchild);
+      }
+    }
+  }
+
+  // function to queue the recalculation of transition matrices
+  inline void Likelihood::queueTMatrixRecalculation(Node *nd)
+  {
+    double subset_relative_rate = 1.0; // assume all subsets have equal rates for now
+    for (auto &info : _instances)
+    {
+      unsigned instance_specific_subset_index = 0;
+      for (unsigned s : info.subsets)
+      {
+        unsigned tindex = getTMatrixIndex(nd, info, instance_specific_subset_index);
+        _pmatrix_index[info.handle].push_back(tindex);
+        _edge_lengths[info.handle].push_back(nd->_edge_length * subset_relative_rate);
+        _eigen_indices[info.handle].push_back(s);
+        _category_rate_indices[info.handle].push_back(s);
+
+        ++instance_specific_subset_index;
+      }
+    }
+  }
+
+  // function to add an entry to the _operations vector of each BeagleLib instance
+  inline void Likelihood::queuePartialsRecalculation(Node * nd, Node * lchild, Node * rchild) {
+        for (auto & info : _instances) {
+            unsigned instance_specific_subset_index = 0;
+            for (unsigned s : info.subsets) {
+                addOperation(info, nd, lchild, rchild, instance_specific_subset_index);
+                ++instance_specific_subset_index;
+            }
+        }
+    }
+
+
+  // function to add operations
+  inline void Likelihood::addOperation(InstanceInfo & info, Node * nd, Node * lchild, Node * rchild, unsigned subset_index) {
+    assert(nd);
+    assert(lchild);
+    assert(rchild);
+
+    // 1. destination partial to be calculated
+    int partial_dest = getPartialIndex(nd, info);
+    _operations[info.handle].push_back(partial_dest);
+
+    // 2. destination scaling buffer index to write to
+    int scaler_index = getScalerIndex(nd, info);
+    _operations[info.handle].push_back(scaler_index);
+
+    // 3. destination scaling buffer index to read from
+    _operations[info.handle].push_back(BEAGLE_OP_NONE);
+
+    // 4. left child partial index
+    int partial_lchild = getPartialIndex(lchild, info);
+    _operations[info.handle].push_back(partial_lchild);
+
+    // 5. left child transition matrix index
+    unsigned tindex_lchild = getTMatrixIndex(lchild, info, subset_index);
+    _operations[info.handle].push_back(tindex_lchild);
+
+    // 6. right child partial index
+    int partial_rchild = getPartialIndex(rchild, info);
+    _operations[info.handle].push_back(partial_rchild);
+
+    // 7. right child transition matrix index
+    unsigned tindex_rchild = getTMatrixIndex(rchild, info, subset_index);
+    _operations[info.handle].push_back(tindex_rchild);
+
+    if (info.subsets.size() > 1) {
+      // 8. index of partition subset
+      _operations[info.handle].push_back(subset_index);
+
+      // 9. cumulative scale index
+      _operations[info.handle].push_back(BEAGLE_OP_NONE);
+    }
+  }
+
+  // function to get the index of particular partials buffer (node number)
+  inline unsigned Likelihood::getPartialIndex(Node * nd, InstanceInfo & info) const {
+    // Note: do not be tempted to subtract _ntaxa from pindex: BeagleLib does this itseld
+    assert(nd->_number >= 0);
+    return nd->_number;
+  }
+
+  // function to return the index of a particular transition probability matrix buffer
+  inline unsigned Likelihood::getTMatrixIndex(Node * nd, InstanceInfo & info, unsigned subset_index) const {
+    unsigned tindex = subset_index*info.tmatrix_offset + nd->_number;
+    return tindex;
+  }
+
+  // function that returns the index of the buffer holding scalars for each pattern for node in a specific beagle instance
+  inline unsigned Likelihood::getScalerIndex(Node * nd, InstanceInfo & info) const {
+    return BEAGLE_OP_NONE;
+  }
+
+  // function to recalculate all transition matrices
+  inline void Likelihood::updateTransitionMatrices()
+  {
+    assert(_instances.size() > 0);
+    if (_pmatrix_index.size() == 0)
+      return;
+
+    // Loop through all instances
+    for (auto &info : _instances)
+    {
+      int code = 0;
+
+      unsigned nsubsets = (unsigned)info.subsets.size();
+      if (nsubsets > 1)
+      {
+        code = beagleUpdateTransitionMatricesWithMultipleModels(
+            info.handle,                              // Instance number
+            &_eigen_indices[info.handle][0],          // Index of eigen-decomposition buffer
+            &_category_rate_indices[info.handle][0],  // category rate indices
+            &_pmatrix_index[info.handle][0],          // transition probability matrices to update
+            NULL,                                     // first derivative matrices to update
+            NULL,                                     // second derivative matrices to update
+            &_edge_lengths[info.handle][0],           // List of edge lengths
+            (int)_pmatrix_index[info.handle].size()); // Length of lists
+      }
+      else
+      {
+        code = beagleUpdateTransitionMatrices(
+            info.handle,                            // Instance number
+            0,                                      // Index of eigen-decomposition buffer
+            &_pmatrix_index[info.handle][0],        // transition probability matrices to update
+            NULL,                                   // first derivative matrices to update
+            NULL,                                   // second derivative matrices to update
+            &_edge_lengths[info.handle][0],         // List of edge lengths
+            (int)_pmatrix_index[info.handle].size() // Length of lists
+        );
+      }
+
+      if (code != 0)
+        throw XStrom(boost::str(boost::format("Failed to update transition matrices for instance %d. BeagleLib error code was %d (%s)") % info.handle % code % _beagle_error[code]));
+    }
+  }
+
+  // function to update all the parials using the information in the operations array
+  inline void Likelihood::calculatePartials()
+  {
+    assert(_instances.size() > 0);
+    if (_operations.size() == 0)
+      return;
+    int code = 0;
+
+    // Loop through all instances
+    for (auto & info : _instances)
+    {
+      unsigned nsubsets = (unsigned)info.subsets.size();
+
+      if (nsubsets > 1)
+      {
+        code = beagleUpdatePartialsByPartition(
+            info.handle,                                                // Instance number
+            (BeagleOperationByPartition *)&_operations[info.handle][0], // BeagleOperation list specifying operations
+            (int)(_operations[info.handle].size() / 9)                  // Number of operations
+        );
+
+        if (code != 0)
+          throw XStrom(boost::format("failed to update partials. BeagleLib error code was %d (%s)") % code % _beagle_error[code]);
+      }
+      else
+      {
+          // no partitioning, just one data subset
+          code = beagleUpdatePartials(
+              info.handle,                                     // Instance number
+              (BeagleOperation *)&_operations[info.handle][0], // BeagleOperation list specifying operations
+              (int)(_operations[info.handle].size() / 7),      // Number of operations
+              BEAGLE_OP_NONE                                   // Index number of scaleBuffer to store accumulated factors
+          );
+          if (code != 0)
+              throw XStrom(boost::format("failed to update partials. BeagleLib error code was %d (%s)") % code % _beagle_error[code]);
+      }
+    }
+  }
+
+  // function to calculate the log-likelihood for just the data managed by a single BeagleLib instance
+  inline double Likelihood::calcInstanceLogLikelihood(InstanceInfo & info, Tree::SharedPtr t) {
+    int code = 0;
+    unsigned nsubsets = (unsigned)info.subsets.size();
+    assert(nsubsets > 0);
+
+    // Assuming there are as many transition matrices as there are edge lengths
+    assert(_pmatrix_index[info.handle].size() == _edge_lengths[info.handle].size());
+
+    int state_frequency_index = 0;
+    int category_weights_index = 0;
+    int cumulative_scale_index = BEAGLE_OP_NONE;
+    int child_partials_index = getPartialIndex(t-<_root, info);
+    int parent_partials_index = getPartialIndex(t->_preorder[0], info);
+    int parent_tmatrix_index = getTMatrixIndex(t->_preorder[0], info, 0);
+
+    // storage for results of the likelihood calculation
+    std::vector<double> subset_log_likelihoods(nsubsets, 0.0);
+    double log_likelihood = 0.0;
+
+    if (nsubsets > 1) {
+      _parent_indices.assign(nsubsets, parent_partials_index);
+      _child_indices.assign(nsubsets, child_partials_index);
+      _weights_indices.assign(nsubsets, category_weights_index);
+      _scaling_indices.resize(nsubsets);
+      _subset_indices.resize(nsubsets);
+      _freqs_indices.resize(nsubsets);
+      _tmatrix_indices.resize(nsubsets);
+
+      for (unsigned s = 0; s < nsubsets; s++) {
+        _scaling_indices[s] = BEAGLE_OP_NONE;
+        _subset_indices[s] = s;
+        _freqs_indices[s] = s;
+        _tmatrix_indices[s] = getTMatrixIndex(t->_preorder[0], info, s); // index_focal_child + s*tmatrix_skip;
+      }
+
+      code = beagleCalculateEdgeLogLikelihoodsByPartition(
+        info.handle, // instance number
+        &_parent_indices[0], // indices of parent partialsBuffers
+        &_child_indices[0], // indices of child partialsBuffers
+        &_tmatrix_indices[0], // transition probability matrices
+        NULL, // first derivative matrices
+        NULL, // second derivative matrices
+        &_weights_indices[0], // weights to apply to each partialsBuffer
+        &_freqs_indices[0], // state frequencies for each partialsBuffer
+        &_scaling_indices[0], // scaleBuffers containing accumulated factors
+        &_subset_indices[0], // indices of subsets
+        nsubsets, // partition subset count
+        1, // number of distinct eigen decompositions
+        &subset_log_likelihoods[0], // address of vector of log likelihoods (one for each subsets)
+        &log_likelihood, // destination for resulting log likelihood
+        NULL, // destination for vector of first derivatives (one for each subsets)
+        NULL, // destination for first derivative
+        NULL, // destination for vector of second derivatives (one for each subsets)
+        NULL // destination for second derivative
+      );
+    }
+    else {
+      code = beagleCalculateEdgeLogLikelihoods(
+          info.handle, // instance number
+          &parent_partials_index, // indices of parent partialsBuffer
+          &child_partials_index, // indices of child partialsBuffers
+          &parent_tmatrix_index, // transition probability matrices for this edge
+          NULL, // first derivative matrices
+          NULL, // second derivative matrices
+          &category_weights_index, // weights to apply to each partialsBuffer
+          &state_frequency_index, // state frequencies for each partialsBuffer
+          &cumulative_scale_index, // scaleBuffers containing accumulated factors
+          1, // Number of partialsBuffer
+          &log_likelihood, // destination for log likelihood
+          NULL, // destination for first derivative
+          NULL // destination for second derivative
+        );
+    }
+    if (code !=0)
+      throw XStrom(boost::str(boost::format("failed to calculate edge logLikelihoods in CalcLogLikelihood. BeagleLib error code was %d (%s)") % code % _beagle_error[code]));
+
+    return log_likelihood;
+  }
+
+  // function that returns the log likelihood for the tree
+  inline double Likelihood::calcLogLikelihood(Tree::SharedPtr t) {
+    assert(_instances.size() > 0);
+
+    if (!_using_data)
+      return 0.0;
+
+    // Must call setData before calcLogLikelihood
+    assert(_data);
+
+    if (t->_is_rooted)
+      throw XStrom("This version of the program can only compute likelihoods for unrooted trees");
+
+    // ASsuming "root" is leaf 0
+    assert(t->_root->_number == 0 && t->_root->_left_child == t->_preorder[0] && !t->_preorder[0]->_right_sib);
+
+    setModelRateMatrix();
+    setAmongSiteRateHeterogenetity();
+    defineOperations(t);
+    updateTransitionMatrices();
+    calculatePartials();
+
+    double log_likelihood = 0.0;
+    for (auto &info : _instances)
+    {
+      log_likelihood += calcInstanceLogLikelihood(info, t);
+    }
+
+    return log_likelihood;
+  }
 }

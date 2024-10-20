@@ -3,19 +3,27 @@ project(
   'cpp',
   default_options: [
     'cpp_std=c++11',
-    'prefix=/home/basanta/projects/strom/distr',
+    'prefix=/Users/basantakhakurel/Programming/strom/distr',
   ],
   version: '1.0',
 )
 
 cpp = meson.get_compiler('cpp')
-lib_filesystem = cpp.find_library('boost_filesystem', dirs: ['/home/basanta/lib/static'], required: true)
-lib_program_options = cpp.find_library('boost_program_options', dirs: ['/home/basanta/lib/static'], required: true)
-lib_ncl = cpp.find_library('ncl', dirs: ['/home/basanta/lib/static'], required: true)
-lib_beagle = cpp.find_library('hmsbeagle', dirs: ['/home/basanta/lib'], required: true)
-incl_beagle = include_directories('/home/basanta/include/libhmsbeagle-1')
-incl_ncl = include_directories('/home/basanta/include')
-incl_boost = include_directories('/home/basanta/Documents/libraries/boost_1_86_0')
+lib_filesystem = cpp.find_library(
+  'boost_filesystem',
+  dirs: ['/Users/basantakhakurel/lib/static'],
+  required: true,
+)
+lib_program_options = cpp.find_library(
+  'boost_program_options',
+  dirs: ['/Users/basantakhakurel/lib/static'],
+  required: true,
+)
+lib_ncl = cpp.find_library('ncl', dirs: ['/Users/basantakhakurel/lib/static'], required: true)
+lib_beagle = cpp.find_library('hmsbeagle', dirs: ['/Users/basantakhakurel/lib'], required: true)
+incl_beagle = include_directories('/Users/basantakhakurel/include/libhmsbeagle-1')
+incl_ncl = include_directories('/Users/basantakhakurel/include')
+incl_boost = include_directories('/Users/basantakhakurel/Documents/libraries/boost_1_86_0/')
 
 executable(
   'strom',

@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include "data.hpp"
+#include "likelihood.hpp"
 #include "tree_summary.hpp"
 #include "partition.hpp"
 #include <boost/program_options.hpp>
@@ -24,9 +25,13 @@ namespace strom
     std::string _tree_file_name;
 
     Partition::SharedPtr _partition;
-    Data::SharedPtr _data;
 
+    Data::SharedPtr _data;
+    Likelihood::SharedPtr _likelihood;
     TreeSummary::SharedPtr _tree_summary;
+
+    bool _use_gpu;
+    bool _ambig_missing;
 
     static std::string _program_name;
     static unsigned _major_version;
@@ -61,7 +66,10 @@ namespace strom
     _tree_file_name = "";
     _tree_summary = nullptr;
     _partition.reset(new Partition());
+    _use_gpu = true;
+    _ambig_missing = true;
     _data = nullptr;
+    _likelihood = nullptr;
   }
 
   /**
@@ -84,7 +92,14 @@ namespace strom
     std::vector<std::string> partition_subsets;
     boost::program_options::variables_map vm;
     boost::program_options::options_description desc("Allowed options");
-    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'");
+    desc.add_options()
+      ("help,h", "produce help message")
+      ("version,v", "show program version")
+      ("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")
+      ("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")
+      ("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")
+      ("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")
+      ("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data");
 
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
 
@@ -148,15 +163,38 @@ namespace strom
         std::cout << "    data type: " << dt.getDataTypeAsString() << std::endl;
         std::cout << "    sites:     " << _data->calcSeqLenInSubset(subset) << std::endl;
         std::cout << "    patterns:  " << _data->getNumPatternsInSubset(subset) << std::endl;
+        std::cout << "    ambiguity: " << (_ambig_missing || dt.isCodon() ? "treated as missing data (faster)" : "handled appropriately (slower)") << std::endl;
       }
     }
 
-    catch (XStrom &x)
-    {
-      std::cerr << "Strom encountered a problem:(\n " << x.what() << std::endl;
-    }
+    std::cout << "\n*** Resources available to BeagleLib " << _likelihood->beagleLibVersion() << ":\n";
+    std::cout << _likelihood->availableResources() << std::endl;
 
-    std::cout << "\nFinished!" << std::endl;
+    std::cout << "\n*** Creating the likelihood calculator" << std::endl;
+    _likelihood = Likelihood::SharedPtr(new Likelihood());
+    _likelihood->setPreferGPU(_use_gpu);
+    _likelihood->setAmbiguityEqualsMissing(_ambig_missing);
+    _likelihood->setData(_data);
+    _likelihood->initBeagleLib();
+
+    std::cout << "\n*** Reading and storing the first tree in the file " << _tree_file_name << std::endl;
+    _tree_summary = TreeSummary::SharedPtr(new TreeSummary());
+    _tree_summary->readTreefile(_tree_file_name, 0);
+    Tree::SharedPtr tree = _tree_summary->getTree(0);
+
+    if (tree->numLeaves() != _data->getNumTaxa())
+      throw XStrom(boost::format("Number of taxa in tree (%d) does not equal the number of taxa in the data matrix (%d)") % tree->numLeaves() % _data->getNumTaxa());
+
+    std::cout << "\n*** Calculating the likelihood of the tree" << std::endl;
+    double lnL = _likelihood->calcLogLikelihood(tree);
+    std::cout << boost::str(boost::format("log likelihood = %.5f") % lnL) << std::endl;
+    std::cout << "      (expecting -278.83767)" << std::endl;
+  }
+  catch (XStrom &x)
+  {
+    std::cerr << "Strom encountered a problem:\n  " << x.what() << std::endl;
   }
 
+  std::cout << "\nFinished!" << std::endl;
+}
 }
