@@ -29,13 +29,13 @@ executable(
   'strom',
   'main.cpp',
   install: true,
-  install_dir: get_option('prefix'),
+  install_dir: '.',
   dependencies: [lib_beagle, lib_ncl, lib_program_options, lib_filesystem],
-  include_directories: [incl_beagle, incl_ncl, incl_boost],
+  include_directories: [incl_beagle,incl_ncl,incl_boost],
 )
-install_data('strom.conf', install_dir: get_option('prefix'))
-install_data('test.tre', install_dir: get_option('prefix'))
-install_data('rbcL.nex', install_dir: get_option('prefix'))
-install_data('datatest.nex', install_dir: get_option('prefix'))
-install_data('rbcLjc.tre', install_dir: get_option('prefix'))
+install_data('strom.conf', install_dir: '.')
+install_data('test.tre', install_dir: '.')
+install_data('rbcL.nex', install_dir: '.')
+install_data('datatest.nex', install_dir: '.')
+install_data('rbcLjc.tre', install_dir: '.')
 install_data('go.sh', install_dir: '.')
