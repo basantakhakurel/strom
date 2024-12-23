@@ -587,6 +587,18 @@ namespace strom
     }
   }
 
+  // function to set the state frequencies for a particular subset
+  inline void Model::setSubsetStateFreqs(QMatrix::freq_xchg_ptr_t state_frequencies, unsigned subset, bool fixed)
+  {
+    assert(subset < _num_subsets);
+    double first_freq = (*state_frequencies)[0];
+    if (first_freq == -1)
+      _qmatrix[subset]->setEqualStateFreqs(state_frequencies);
+    else
+      _qmatrix[subset]->setStateFreqsSharedPtr(state_frequencies);
+    _qmatrix[subset]->fixStateFreqs(fixed);
+  }
+
   // function sets the omega parameter for a particular subset
   inline void Model::setSubsetOmega(QMatrix::omega_ptr_t omega, unsigned subset, bool fixed)
   {
