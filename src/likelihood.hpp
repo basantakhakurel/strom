@@ -27,6 +27,7 @@ namespace strom
 
     bool usingStoredData() const;
     void useStoredData(bool using_data);
+    void useUnderflowScaling(bool do_scaling);
 
     std::string beagleLibVersion() const;
     std::string availableResources() const;
@@ -38,8 +39,9 @@ namespace strom
     double calcLogLikelihood(Tree::SharedPtr t);
 
     Data::SharedPtr getData();
-    Model::SharedPtr getModel();
     void setData(Data::SharedPtr d);
+
+    Model::SharedPtr getModel();
     void setModel(Model::SharedPtr m);
 
     void clear();
@@ -102,12 +104,14 @@ namespace strom
     std::vector<int> _freqs_indices;
     std::vector<int> _scaling_indices;
 
-    Data::SharedPtr _data;
     Model::SharedPtr _model;
+
+    Data::SharedPtr _data;
     unsigned _ntaxa;
     bool _rooted;
     bool _prefer_gpu;
     bool _ambiguity_equals_missing;
+    bool _underflow_scaling;
     bool _using_data;
 
   public:
@@ -165,6 +169,12 @@ namespace strom
     _instances.clear();
   }
 
+  // function to do scaling
+  inline void Likelihood::useUnderflowScaling(bool do_scaling)
+  {
+    _underflow_scaling = do_scaling;
+  }
+
   // function to clear everything
   inline void Likelihood::clear()
   {
@@ -174,6 +184,7 @@ namespace strom
     _rooted = false;
     _prefer_gpu = false;
     _ambiguity_equals_missing = true;
+    _underflow_scaling = false;
     _using_data = true;
     _data = nullptr;
 
@@ -190,6 +201,8 @@ namespace strom
     _weights_indices.assign(1, 0);
     _freqs_indices.assign(1, 0);
     _scaling_indices.assign(1, 0);
+
+    _model = Model::SharedPtr(new Model());
 
     // Store BeagleLib error codes so that useful
     // error messages can be provided to the user
@@ -226,6 +239,16 @@ namespace strom
         s += boost::str(boost::format(" resource %d: %s \n") % i % rsrcList->list[i].name);
     }
     boost::trim_right(s);
+    return s;
+  }
+
+  inline std::string Likelihood::usedResources() const
+  {
+    std::string s;
+    for (unsigned i = 0; i < _instances.size(); i++)
+    {
+      s += boost::str(boost::format("  instance %d: %s (resource %d)\n") % _instances[i].handle % _instances[i].resourcename % _instances[i].resourcenumber);
+    }
     return s;
   }
 
@@ -349,6 +372,7 @@ namespace strom
 
     unsigned num_internals = calcNumInternalsInFullyResolvedTree();
 
+    // add 1 to num_edges so that subroot node will have a tmatrix, root tip's tmatrix is never used
     unsigned num_edges = calcNumEdgesInFullyResolvedTree();
     unsigned num_nodes = num_edges + 1;
     unsigned num_transition_probs = num_nodes * num_subsets;
@@ -356,6 +380,11 @@ namespace strom
     long requirementFlags = 0;
 
     long preferenceFlags = BEAGLE_FLAG_PRECISION_SINGLE | BEAGLE_FLAG_THREADING_CPP;
+    if (_underflow_scaling)
+    {
+      preferenceFlags |= BEAGLE_FLAG_SCALING_MANUAL;
+      preferenceFlags |= BEAGLE_FLAG_SCALERS_LOG;
+    }
     if (_prefer_gpu)
       preferenceFlags |= BEAGLE_FLAG_PROCESSOR_GPU;
     else
@@ -363,6 +392,7 @@ namespace strom
 
     BeagleInstanceDetails instance_details;
     unsigned npartials = num_internals + _ntaxa;
+    unsigned nscalers = num_internals; // one scale buffer for every internal node
     unsigned nsequences = 0;
     if (_ambiguity_equals_missing)
     {
@@ -371,26 +401,26 @@ namespace strom
     }
 
     int inst = beagleCreateInstance(
-        _ntaxa,                             // tips
-        npartials,                          // partials
-        nsequences,                         // sequences
-        nstates,                            // states
-        num_patterns,                       // patterns (total across all subsets that use this instance)
-        num_subsets,                        // models ( one for each distinct eigen decomposition)
-        num_subsets * num_transition_probs, // transition matrices (one for each node in each subset)
-        ngammacat,                          // rate categories
-        0,                                  // scale buffers
-        NULL,                               // resources restrictions (no restrictions right now)
-        0,                                  // length of resources list
-        preferenceFlags,                    // preferred Flags
-        requirementFlags,                   // required Flags
-        &instance_details);                 // pointer for details
+        _ntaxa,                                  // tips
+        npartials,                               // partials
+        nsequences,                              // sequences
+        nstates,                                 // states
+        num_patterns,                            // patterns (total across all subsets that use this instance)
+        num_subsets,                             // models (one for each distinct eigen decomposition)
+        num_subsets * num_transition_probs,      // transition matrices (one for each node in each subset)
+        ngammacat,                               // rate categories
+        (_underflow_scaling ? nscalers + 1 : 0), // scale buffers  (+1 is for the cumulative scaler at index 0)
+        NULL,                                    // resource restrictions
+        0,                                       // length of resource list
+        preferenceFlags,                         // preferred flags
+        requirementFlags,                        // required flags
+        &instance_details);                      // pointer for details
 
     if (inst < 0)
     {
-      // beagleCreateInstance returns one of the following
-      // valid instance (0, 1, 2, ....)
-      // error code (negative integer)
+      // beagleCreateInstance returns one of the following:
+      //   valid instance (0, 1, 2, ...)
+      //   error code (negative integer)
       throw XStrom(boost::str(boost::format("Likelihood init function failed to create BeagleLib instance (BeagleLib error code was %d)") % _beagle_error[inst]));
     }
 
@@ -408,8 +438,7 @@ namespace strom
     _instances.push_back(info);
   }
 
-  // function to be called if ambiguity is counted as missing data
-  // if _ambiguity_equals_missing is true
+  // function to calculate tip partials
   inline void Likelihood::setTipStates()
   {
     assert(_instances.size() > 0);
@@ -826,7 +855,10 @@ namespace strom
   // function that returns the index of the buffer holding scalars for each pattern for node in a specific beagle instance
   inline unsigned Likelihood::getScalerIndex(Node *nd, InstanceInfo &info) const
   {
-    return BEAGLE_OP_NONE;
+    unsigned sindex = BEAGLE_OP_NONE;
+    if (_underflow_scaling)
+      sindex = nd->_number - _ntaxa + 1; //+1 to skip the cumulative scaler vector
+    return sindex;
   }
 
   // function to recalculate all transition matrices
@@ -923,7 +955,7 @@ namespace strom
 
     int state_frequency_index = 0;
     int category_weights_index = 0;
-    int cumulative_scale_index = BEAGLE_OP_NONE;
+    int cumulative_scale_index = (_underflow_scaling ? 0 : BEAGLE_OP_NONE);
     int child_partials_index = getPartialIndex(t->_root, info);
     int parent_partials_index = getPartialIndex(t->_preorder[0], info);
     int parent_tmatrix_index = getTMatrixIndex(t->_preorder[0], info, 0);
@@ -931,6 +963,53 @@ namespace strom
     // storage for results of the likelihood calculation
     std::vector<double> subset_log_likelihoods(nsubsets, 0.0);
     double log_likelihood = 0.0;
+
+    if (_underflow_scaling)
+    {
+      // Create vector of all scaling vector indices in current use
+      std::vector<int> internal_node_scaler_indices;
+      for (auto nd : t->_preorder)
+      {
+        if (nd->_left_child)
+        {
+          unsigned s = getScalerIndex(nd, info);
+          internal_node_scaler_indices.push_back(s);
+        }
+      }
+
+      if (nsubsets == 1)
+      {
+        code = beagleResetScaleFactors(info.handle, cumulative_scale_index);
+        if (code != 0)
+          throw XStrom(boost::str(boost::format("failed to reset scale factors in calcInstanceLogLikelihood. BeagleLib error code was %d (%s)") % code % _beagle_error[code]));
+
+        code = beagleAccumulateScaleFactors(
+            info.handle,
+            &internal_node_scaler_indices[0],
+            (int)internal_node_scaler_indices.size(),
+            cumulative_scale_index);
+        if (code != 0)
+          throw XStrom(boost::str(boost::format("failed to accumulate scale factors in calcInstanceLogLikelihood. BeagleLib error code was %d (%s)") % code % _beagle_error[code]));
+      }
+      else
+      {
+        for (unsigned s = 0; s < nsubsets; ++s)
+        {
+          code = beagleResetScaleFactorsByPartition(info.handle, cumulative_scale_index, s);
+          if (code != 0)
+            throw XStrom(boost::str(boost::format("failed to reset scale factors for subset %d in calcInstanceLogLikelihood. BeagleLib error code was %d (%s)") % s % code % _beagle_error[code]));
+
+          code = beagleAccumulateScaleFactorsByPartition(
+              info.handle,
+              &internal_node_scaler_indices[0],
+              (int)internal_node_scaler_indices.size(),
+              cumulative_scale_index,
+              s);
+          if (code != 0)
+            throw XStrom(boost::str(boost::format("failed to acccumulate scale factors for subset %d in calcInstanceLogLikelihood. BeagleLib error code was %d (%s)") % s % code % _beagle_error[code]));
+        }
+      }
+    }
 
     if (nsubsets > 1)
     {
@@ -944,7 +1023,7 @@ namespace strom
 
       for (unsigned s = 0; s < nsubsets; s++)
       {
-        _scaling_indices[s] = BEAGLE_OP_NONE;
+        _scaling_indices[s] = (_underflow_scaling ? 0 : BEAGLE_OP_NONE);
         _subset_indices[s] = s;
         _freqs_indices[s] = s;
         _tmatrix_indices[s] = getTMatrixIndex(t->_preorder[0], info, s); // index_focal_child + s*tmatrix_skip;

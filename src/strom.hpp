@@ -38,6 +38,7 @@ namespace strom
 
     bool _use_gpu;
     bool _ambig_missing;
+    bool _use_underflow_scaling;
 
     static std::string _program_name;
     static unsigned _major_version;
@@ -78,6 +79,7 @@ namespace strom
     _expected_log_likelihood = 0.0;
     _data = nullptr;
     _likelihood = nullptr;
+    _use_underflow_scaling = false;
   }
 
   /**
@@ -108,7 +110,8 @@ namespace strom
     std::vector<std::string> partition_tree;
     boost::program_options::variables_map vm;
     boost::program_options::options_description desc("Allowed options");
-    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data");
+    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
+
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
     try
     {
@@ -437,6 +440,7 @@ namespace strom
       _likelihood->setPreferGPU(_use_gpu);
       _likelihood->setAmbiguityEqualsMissing(_ambig_missing);
       _likelihood->setData(_data);
+      _likelihood->useUnderflowScaling(_use_underflow_scaling);
 
       std::cout << "\n*** Model description" << std::endl;
       std::cout << _model->describeModel() << std::endl;
