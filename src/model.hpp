@@ -181,7 +181,7 @@ namespace strom
       _subset_relrates_fixed = true;
 
     // loop through subsets, building up rows as we go
-    for (unsigned i = 0; i < num_subsets; i++)
+    for (unsigned i = 0; i < _num_subsets; i++)
     {
       // Ensure that for subsets in which the number of rate categories is 1 that
       // the gamma rate variance is fixed; otherwise the gamma rate variance will
@@ -197,7 +197,7 @@ namespace strom
       ss["dashes"] += "------------";
 
       // Determine whether state freqs are unique for this subset
-      QMatrix::freq_xchg_ptr_t pfreq = _qmatrix[i]->getStateFreqSharedPtr();
+      QMatrix::freq_xchg_ptr_t pfreq = _qmatrix[i]->getStateFreqsSharedPtr();
       QMatrix::freq_xchg_t &freq = *pfreq;
       double *freq_addr = &freq[0];
       auto f = freqset.insert(freq_addr);
@@ -426,7 +426,7 @@ namespace strom
     return _subset_sizes[subset];
   }
 
-  inline Model::getNumSites() const
+  inline unsigned Model::getNumSites() const
   {
     return _num_sites;
   }
@@ -488,7 +488,7 @@ namespace strom
     assert(nsites_vect.size() == _num_subsets);
     _subset_sizes.resize(_num_subsets);
     std::copy(nsites_vect.begin(), nsites_vect.end(), _subset_sizes.begin());
-    _num_sites = std::accumulate(_subset_sizes.begin(), _subset_sizes, end(), 0);
+    _num_sites = std::accumulate(_subset_sizes.begin(), _subset_sizes.end(), 0);
   }
 
   // function to obtain the subset pattern counts
@@ -566,7 +566,7 @@ namespace strom
   }
 
   // function to determine whether this model will be an invariable sites model for the partition subset indicated
-  inlive void Model::setSubsetIsInvarModel(bool is_invar, unsigned subset)
+  inline void Model::setSubsetIsInvarModel(bool is_invar, unsigned subset)
   {
     assert(subset < _num_subsets);
     _asrv[subset]->setIsInvarModel(is_invar);
@@ -580,7 +580,7 @@ namespace strom
     {
       double first_xchg = (*exchangeabilities)[0];
       if (first_xchg == -1)
-        _qmatrix[subset]->setExchangeabilities(exchangeabilities);
+        _qmatrix[subset]->setEqualExchangeabilities(exchangeabilities);
       else
         _qmatrix[subset]->setExchangeabilitiesSharedPtr(exchangeabilities);
       _qmatrix[subset]->fixExchangeabilities(fixed);
@@ -643,6 +643,12 @@ namespace strom
   }
 
   // function to return a reference to the _subset_relrates vector
+  inline Model::subset_relrate_vect_t &Model::getSubsetRelRates()
+  {
+    return _subset_relrates;
+  }
+
+  // function to return a reference to the _subset_relrates vector
   inline bool Model::isFixedSubsetRelRates() const
   {
     return _subset_relrates_fixed;
@@ -667,9 +673,9 @@ namespace strom
   {
     assert(subset < _qmatrix.size());
     const double *pevec = _qmatrix[subset]->getEigenvectors();
-    const double *pivec = _qmatrix[subset]->getInverseEigenvector();
+    const double *pivec = _qmatrix[subset]->getInverseEigenvectors();
     const double *pival = _qmatrix[subset]->getEigenvalues();
-    int code = beagelSetEigenDecomposition(
+    int code = beagleSetEigenDecomposition(
         beagle_instance, // Instance number (input)
         instance_subset, // Index of eigen-decomposition buffer (input)
         pevec,           // Flattened matrix (stateCount x stateCount) of eigen-vectors (input)

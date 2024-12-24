@@ -4,6 +4,7 @@
 #include <limits>
 #include <cmath>
 #include <boost/format.hpp>
+#include <regex>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/classification.hpp>

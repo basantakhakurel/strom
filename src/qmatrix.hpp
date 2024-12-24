@@ -16,6 +16,7 @@ namespace strom
     typedef std::vector<double> freq_xchg_t;
     typedef std::shared_ptr<freq_xchg_t> freq_xchg_ptr_t;
     typedef double omega_t;
+    typedef std::shared_ptr<omega_t> omega_ptr_t;
     typedef boost::shared_ptr<QMatrix> SharedPtr;
 
     QMatrix();
@@ -32,7 +33,7 @@ namespace strom
     bool isFixedStateFreqs() const;
 
     virtual void setEqualExchangeabilities(freq_xchg_ptr_t xchg_ptr) = 0;
-    virtual void setExchangeabilitiesSharedPtr(freq_xchg_ptr_t xchg_ptr) = 0;
+    virtual void setExchangeabilitiesSharedPtr(freq_xchg_ptr_t xchg) = 0;
     virtual void setExchangeabilities(freq_xchg_t &xchg) = 0;
     virtual freq_xchg_ptr_t getExchangeabilitiesSharedPtr() = 0;
     virtual const double *getExchangeabilities() const = 0;
@@ -54,7 +55,7 @@ namespace strom
 
   protected:
     virtual void recalcRateMatrix() = 0;
-    void normalizeFreqsOrEchangeabilities(freq_xchg_ptr_t v);
+    void normalizeFreqsOrExchangeabilities(freq_xchg_ptr_t v);
 
     bool _is_active;
     bool _state_freqs_fixed;
@@ -121,7 +122,7 @@ namespace strom
   }
 
   // function taking a vector of frequencies or exchangeabilities and normalizing them
-  inline void QMatrix::normalizeFreqsOrEchangeabilities(QMatrix::freq_xchg_ptr_t v)
+  inline void QMatrix::normalizeFreqsOrExchangeabilities(QMatrix::freq_xchg_ptr_t v)
   {
     // Be sure elements of v sum to 1.0 and assert that no element is negative
     double sum_v = std::accumulate(v->begin(), v->end(), 0.0);
