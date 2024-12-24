@@ -11,14 +11,14 @@ namespace strom
   class Tree;
   class TreeManip;
   class Likelihood;
-  // class Updater;
+  class Updater;
 
   class Node
   {
     friend class Tree;
     friend class TreeManip;
     friend class Likelihood;
-    // friend class Updater;
+    friend class Updater;
 
   public:
     Node();
@@ -31,6 +31,29 @@ namespace strom
     std::string getName() { return _name; }
     Split getSplit() { return _split; }
 
+    bool isSelected() { return _flags & Flag::Selected; }
+    void select() { _flags |= Flag::Selected; }
+    void deselect() { _flags &= ~Flag::Selected; }
+
+    bool isSelPartial() { return _flags & Flag::SelPartial; }
+    void selectPartial() { _flags |= Flag::SelPartial; }
+    void deselectPartial() { _flags &= ~Flag::SelPartial; }
+
+    bool isSelTMatrix() { return _flags & Flag::SelTMatrix; }
+    void selectTMatrix() { _flags |= Flag::SelTMatrix; }
+    void deselectTMatrix() { _flags &= ~Flag::SelTMatrix; }
+
+    bool isAltPartial() { return _flags & Flag::AltPartial; }
+    void setAltPartial() { _flags |= Flag::AltPartial; }
+    void clearAltPartial() { _flags &= ~Flag::AltPartial; }
+
+    bool isAltTMatrix() { return _flags & Flag::AltTMatrix; }
+    void setAltTMatrix() { _flags |= Flag::AltTMatrix; }
+    void clearAltTMatrix() { _flags &= ~Flag::AltTMatrix; }
+
+    void flipTMatrix() { isAltTMatrix() ? clearAltTMatrix() : setAltTMatrix(); }
+    void flipPartial() { isAltPartial() ? clearAltPartial() : setAltPartial(); }
+
     double getEdgeLength() { return _edge_length; }
     void setEdgeLength(double v);
 
@@ -40,6 +63,15 @@ namespace strom
     typedef std::vector<Node *> PtrVector;
 
   private:
+    enum Flag
+    {
+      Selected = (1 << 0),
+      SelPartial = (1 << 1),
+      SelTMatrix = (1 << 2),
+      AltPartial = (1 << 3),
+      AltTMatrix = (1 << 4)
+    };
+
     void clear();
 
     Node *_left_child;
@@ -49,6 +81,7 @@ namespace strom
     std::string _name;
     double _edge_length;
     Split _split;
+    int _flags;
   };
 
   inline Node::Node()
@@ -64,6 +97,7 @@ namespace strom
 
   inline void Node::clear()
   {
+    _flags = 0;
     _left_child = 0;
     _right_sib = 0;
     _parent = 0;

@@ -24,6 +24,11 @@ namespace strom
     typedef std::vector<unsigned> subset_sizes_t;
     typedef std::vector<DataType> subset_datatype_t;
     typedef std::vector<double> subset_relrate_vect_t;
+    typedef std::vector<QMatrix::SharedPtr> state_freq_params_t;
+    typedef std::vector<QMatrix::SharedPtr> exchangeability_params_t;
+    typedef std::vector<QMatrix::SharedPtr> omega_params_t;
+    typedef std::vector<ASRV::SharedPtr> ratevar_params_t;
+    typedef std::vector<ASRV::SharedPtr> pinvar_params_t;
     typedef boost::shared_ptr<Model> SharedPtr;
 
     Model();
@@ -69,6 +74,12 @@ namespace strom
     void setSubsetNumCateg(unsigned ncateg, unsigned subset);
     unsigned getSubsetNumCateg(unsigned subset) const;
 
+    state_freq_params_t &getStateFreqParams();
+    exchangeability_params_t &getExchangeabilityParams();
+    omega_params_t &getOmegaParams();
+    ratevar_params_t &getRateVarParams();
+    pinvar_params_t &getPinvarParams();
+
     int setBeagleEigenDecomposition(int beagle_instance, unsigned subset, unsigned instance_subset);
     int setBeagleStateFrequencies(int beagle_instance, unsigned subset, unsigned instance_subset);
     int setBeagleAmongSiteRateVariationRates(int beagle_instance, unsigned subset, unsigned instance_subset);
@@ -90,6 +101,12 @@ namespace strom
 
     bool _subset_relrates_fixed;
     subset_relrate_vect_t _subset_relrates;
+
+    state_freq_params_t _state_freq_params;
+    exchangeability_params_t _exchangeability_params;
+    omega_params_t _omega_params;
+    ratevar_params_t _ratevar_params;
+    pinvar_params_t _pinvar_params;
   };
 
   // constructor
@@ -121,6 +138,31 @@ namespace strom
     _asrv.clear();
   }
 
+  inline Model::state_freq_params_t &Model::getStateFreqParams()
+  {
+    return _state_freq_params;
+  }
+
+  inline Model::exchangeability_params_t &Model::getExchangeabilityParams()
+  {
+    return _exchangeability_params;
+  }
+
+  inline Model::omega_params_t &Model::getOmegaParams()
+  {
+    return _omega_params;
+  }
+
+  inline Model::ratevar_params_t &Model::getRateVarParams()
+  {
+    return _ratevar_params;
+  }
+
+  inline Model::pinvar_params_t &Model::getPinvarParams()
+  {
+    return _pinvar_params;
+  }
+
   // function that revelas the current state of the model
   inline std::string Model::describeModel()
   {
@@ -143,6 +185,13 @@ namespace strom
     //    exchangeabilities           1           1           2
     //        rate variance           1           2           3
     //               pinvar           1           2           -
+
+    // Start with empty parameter vectors
+    _state_freq_params.clear();
+    _exchangeability_params.clear();
+    _omega_params.clear();
+    _ratevar_params.clear();
+    _pinvar_params.clear();
 
     // sets used to determine which parameters are linked across subsets
     std::set<double *> freqset;
@@ -223,6 +272,8 @@ namespace strom
         if (x.second)
         {
           unique_xchg.push_back(xchg_addr);
+          if (!_qmatrix[i]->isFixedExchangeabilities())
+            _exchangeability_params.push_back(_qmatrix[i]);
           index = (unsigned)unique_xchg.size();
         }
         else
@@ -247,6 +298,8 @@ namespace strom
         if (o.second)
         {
           unique_omega.push_back(omega_addr);
+          if (!_qmatrix[i]->isFixedOmega())
+            _omega_params.push_back(_qmatrix[i]);
           index = (unsigned)unique_omega.size();
         }
         else
@@ -269,6 +322,8 @@ namespace strom
       if (r.second)
       {
         unique_ratevar.push_back(ratevar_addr);
+        if (!_asrv[i]->isFixedRateVar())
+          _ratevar_params.push_back(_asrv[i]);
         index = (unsigned)unique_ratevar.size();
       }
       else
@@ -288,6 +343,8 @@ namespace strom
         if (r.second)
         {
           unique_pinvar.push_back(pinvar_addr);
+          if (!_asrv[i]->isFixedPinvar())
+            _pinvar_params.push_back(_asrv[i]);
           index = (unsigned)unique_pinvar.size();
         }
         else

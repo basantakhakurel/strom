@@ -5,8 +5,12 @@
 #include "likelihood.hpp"
 #include "tree_summary.hpp"
 #include "partition.hpp"
+#include "lot.hpp"
+#include "chain.hpp"
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/classification.hpp>
 
 namespace strom
 {
@@ -35,6 +39,12 @@ namespace strom
     Model::SharedPtr _model;
     Likelihood::SharedPtr _likelihood;
     TreeSummary::SharedPtr _tree_summary;
+    Lot::SharedPtr _lot;
+
+    unsigned _random_seed;
+    unsigned _num_iter;
+    unsigned _print_freq;
+    unsigned _sample_freq;
 
     bool _use_gpu;
     bool _ambig_missing;
@@ -80,6 +90,11 @@ namespace strom
     _data = nullptr;
     _likelihood = nullptr;
     _use_underflow_scaling = false;
+    _lot = nullptr;
+    _random_seed = 1;
+    _num_iter = 1000;
+    _print_freq = 1;
+    _sample_freq = 1;
   }
 
   /**
@@ -110,7 +125,7 @@ namespace strom
     std::vector<std::string> partition_tree;
     boost::program_options::variables_map vm;
     boost::program_options::options_description desc("Allowed options");
-    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
+    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("seed,z", boost::program_options::value(&_random_seed)->default_value(1), "pseudorandom number seed")("niter,n", boost::program_options::value(&_num_iter)->default_value(1000), "number of MCMC iterations")("printfreq", boost::program_options::value(&_print_freq)->default_value(1), "skip this many iterations before reporting progress")("samplefreq", boost::program_options::value(&_sample_freq)->default_value(1), "skip this many iterations before sampling next")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
 
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
     try
@@ -451,11 +466,15 @@ namespace strom
       _tree_summary = TreeSummary::SharedPtr(new TreeSummary());
       _tree_summary->readTreefile(_tree_file_name, 0);
       Tree::SharedPtr tree = _tree_summary->getTree(0);
+      std::string newick = _tree_summary->getNewick(0);
 
       if (tree->numLeaves() != _data->getNumTaxa())
         throw XStrom(boost::format("Number of taxa in tree (%d) does not equal the number of taxa in the data matrix (%d)") % tree->numLeaves() % _data->getNumTaxa());
 
       std::cout << "\n*** Calculating the likelihood of the tree" << std::endl;
+      TreeManip tm(tree);
+      tm.selectAllPartials();
+      tm.selectAllTMatrices();
       double lnL = _likelihood->calcLogLikelihood(tree);
       std::cout << boost::str(boost::format("log likelihood = %.5f") % lnL) << std::endl;
 
@@ -465,6 +484,44 @@ namespace strom
     catch (XStrom &x)
     {
       std::cerr << "Strom encountered a problem:\n  " << x.what() << std::endl;
+
+      // Create a Lot object that generates (pseudo)random numbers
+      _lot = Lot::SharedPtr(new Lot);
+      _lot->setSeed(_random_seed);
+
+      // Create a Chain object and take _num_iter steps
+      Chain chain;
+      unsigned num_free_parameters = chain.createUpdaters(_model, _lot, _likelihood);
+      if (num_free_parameters > 0)
+      {
+        chain.setTreeFromNewick(newick);
+        chain.start();
+
+        // Output column headers and first line of output showing starting state (iteration 0)
+        std::cout << boost::str(boost::format("\n%12s %12s %12s %12s %12s %12s\n") % "iteration" % "lnLike" % "lnPrior" % "ratevar" % "accept" % "samples");
+        GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
+        std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % 0 % chain.getLogLikelihood() % chain.calcLogJointPrior() % ratevar_updater->getCurrentPoint() % 0 % 0);
+
+        for (unsigned iteration = 1; iteration <= _num_iter; ++iteration)
+        {
+          chain.nextStep(iteration);
+
+          if (iteration % _sample_freq == 0)
+          {
+            GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
+            double log_prior = chain.calcLogJointPrior();
+            if (log_prior == Updater::getLogZero())
+              std::cout << boost::str(boost::format("%12d %12.5f %12s %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % "-infinity" % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
+            else
+              std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % log_prior % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
+          }
+        }
+        chain.stop();
+      }
+      else
+      {
+        std::cout << "\nMCMC skipped because there are no free parameters in the model" << std::endl;
+      }
     }
 
     std::cout << "\nFinished!" << std::endl;

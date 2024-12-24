@@ -401,20 +401,20 @@ namespace strom
     }
 
     int inst = beagleCreateInstance(
-        _ntaxa,                                  // tips
-        npartials,                               // partials
-        nsequences,                              // sequences
-        nstates,                                 // states
-        num_patterns,                            // patterns (total across all subsets that use this instance)
-        num_subsets,                             // models (one for each distinct eigen decomposition)
-        num_subsets * num_transition_probs,      // transition matrices (one for each node in each subset)
-        ngammacat,                               // rate categories
-        (_underflow_scaling ? nscalers + 1 : 0), // scale buffers  (+1 is for the cumulative scaler at index 0)
-        NULL,                                    // resource restrictions
-        0,                                       // length of resource list
-        preferenceFlags,                         // preferred flags
-        requirementFlags,                        // required flags
-        &instance_details);                      // pointer for details
+        _ntaxa,                                      // tips
+        2 * npartials,                               // partials
+        nsequences,                                  // sequences
+        nstates,                                     // states
+        num_patterns,                                // patterns (total across all subsets that use this instance)
+        num_subsets,                                 // models (one for each distinct eigen decomposition)
+        2 * num_subsets * num_transition_probs,      // transition matrices (one for each edge in each subset)
+        ngammacat,                                   // rate categories
+        (_underflow_scaling ? 2 * nscalers + 1 : 0), // scale buffers (+1 is for the cumulative scaler at index 0)
+        NULL,                                        // resource restrictions
+        0,                                           // length of resource list
+        preferenceFlags,                             // preferred flags
+        requirementFlags,                            // required flags
+        &instance_details);                          // pointer for details
 
     if (inst < 0)
     {
@@ -739,20 +739,26 @@ namespace strom
       if (!nd->_left_child)
       {
         // This is a leaf
-        queueTMatrixRecalculation(nd);
+        if (nd->isSelTMatrix())
+          queueTMatrixRecalculation(nd);
       }
       else
       {
         // This is an internal node
-        queueTMatrixRecalculation(nd);
+        if (nd->isSelTMatrix())
+          queueTMatrixRecalculation(nd);
 
         // Internal nodes have partials to be calculated, so define
         // an operation to compute the partials for this node
-        Node *lchild = nd->_left_child;
-        assert(lchild);
-        Node *rchild = lchild->_right_sib;
-        assert(rchild);
-        queuePartialsRecalculation(nd, lchild, rchild);
+        if (nd->isSelPartial())
+        {
+
+          Node *lchild = nd->_left_child;
+          assert(lchild);
+          Node *rchild = lchild->_right_sib;
+          assert(rchild);
+          queuePartialsRecalculation(nd, lchild, rchild);
+        }
       }
     }
   }
@@ -840,24 +846,36 @@ namespace strom
   // function to get the index of particular partials buffer (node number)
   inline unsigned Likelihood::getPartialIndex(Node *nd, InstanceInfo &info) const
   {
-    // Note: do not be tempted to subtract _ntaxa from pindex: BeagleLib does this itseld
+    // Note: do not be tempted to subtract _ntaxa from pindex: BeagleLib does this itself
     assert(nd->_number >= 0);
-    return nd->_number;
+    unsigned pindex = nd->_number;
+    if (pindex >= _ntaxa)
+    {
+      if (nd->isAltPartial())
+        pindex += info.partial_offset;
+    }
+    return pindex;
   }
 
   // function to return the index of a particular transition probability matrix buffer
   inline unsigned Likelihood::getTMatrixIndex(Node *nd, InstanceInfo &info, unsigned subset_index) const
   {
-    unsigned tindex = subset_index * info.tmatrix_offset + nd->_number;
+    unsigned tindex = 2 * subset_index * info.tmatrix_offset + nd->_number;
+    if (nd->isAltTMatrix())
+      tindex += info.tmatrix_offset;
     return tindex;
   }
 
   // function that returns the index of the buffer holding scalars for each pattern for node in a specific beagle instance
-  inline unsigned Likelihood::getScalerIndex(Node *nd, InstanceInfo &info) const
+  iinline unsigned Likelihood::getScalerIndex(Node *nd, InstanceInfo &info) const
   {
     unsigned sindex = BEAGLE_OP_NONE;
     if (_underflow_scaling)
-      sindex = nd->_number - _ntaxa + 1; //+1 to skip the cumulative scaler vector
+    {
+      sindex = nd->_number - _ntaxa + 1; // +1 to skip the cumulative scaler vector
+      if (nd->isAltPartial())
+        sindex += info.partial_offset;
+    }
     return sindex;
   }
 

@@ -27,6 +27,8 @@ executable(
   include_directories: [incl_beagle, incl_ncl, incl_boost, incl_eigen],
 )
 install_data('strom.conf', install_dir: get_option('prefix'))
+install_data('rbcl10.nex', install_dir: get_option('prefix'))
+install_data('rbcl10.tre', install_dir: get_option('prefix'))
 install_data('rbcl738.nex', install_dir: get_option('prefix'))
 install_data('rbcl738nj.tre', install_dir: get_option('prefix'))
 install_data('test.tre', install_dir: get_option('prefix'))
