@@ -145,7 +145,7 @@ namespace strom
   }
 
   // function to set the lambda value (to tune for proposals)
-  inline void Updater::setLamda(double lambda)
+  inline void Updater::setLambda(double lambda)
   {
     _lambda = lambda;
   }
@@ -220,10 +220,22 @@ namespace strom
     return _weight;
   }
 
+  // function to return the percentage of attempted updates that were accepted
+  inline double Updater::getAcceptPct() const
+  {
+    return (_nattempts == 0 ? 0.0 : (100.0 * _naccepts / _nattempts));
+  }
+
   // function to return the current value of _nattempts
   inline double Updater::getNumUpdates() const
   {
     return _nattempts;
+  }
+
+  // accessor function that gives name of the updater object
+  inline std::string Updater::getUpdaterName() const
+  {
+    return _name;
   }
 
   // function to return the log likelihood of the current model
@@ -240,7 +252,7 @@ namespace strom
     // Clear any nodes previously selected so that we can detect those nodes
     // whose partials and/or transition matrices need to be recalculated
     _tree_manipulator->deselectAllPartials();
-    _tree_manipulator->deselctAllTMatrices();
+    _tree_manipulator->deselectAllTMatrices();
 
     // Set model to proposed state and calculate _log_hastings_ratio
     proposeNewState();
@@ -313,6 +325,9 @@ namespace strom
     double a = _prior_parameters[0]; // shape of Gamma prior on TL
     double b = _prior_parameters[1]; // scale of Gamma prior on TL
     double c = _prior_parameters[2]; // parameter of Dirichlet prior on edge lengths
+
+    // Calculate Gamma prior on tree length (TL)
+    double log_gamma_prior_on_TL = (a - 1.0) * log(TL) - TL / b - a * log(b) - std::lgamma(a);
 
     // Calculate Dirichlet prior on edge length proportions
     //

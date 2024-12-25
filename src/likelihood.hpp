@@ -867,7 +867,7 @@ namespace strom
   }
 
   // function that returns the index of the buffer holding scalars for each pattern for node in a specific beagle instance
-  iinline unsigned Likelihood::getScalerIndex(Node *nd, InstanceInfo &info) const
+  inline unsigned Likelihood::getScalerIndex(Node *nd, InstanceInfo &info) const
   {
     unsigned sindex = BEAGLE_OP_NONE;
     if (_underflow_scaling)

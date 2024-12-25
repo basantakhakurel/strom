@@ -20,7 +20,7 @@ namespace strom
     friend class Likelihood;
 
   public:
-    typedef std::vector<Updater::SharedPtr> update_vect_t;
+    typedef std::vector<Updater::SharedPtr> updater_vect_t;
     typedef std::shared_ptr<Chain> SharedPtr;
 
     Chain();
@@ -204,7 +204,7 @@ namespace strom
       }
     }
     assert(retval != nullptr);
-    return v;
+    return retval;
   }
 
   // function to provide the performance of each updater

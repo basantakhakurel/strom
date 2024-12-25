@@ -460,6 +460,7 @@ namespace strom
       std::cout << "\n*** Model description" << std::endl;
       std::cout << _model->describeModel() << std::endl;
       _likelihood->setModel(_model);
+
       _likelihood->initBeagleLib();
 
       std::cout << "\n*** Reading and storing the first tree in the file " << _tree_file_name << std::endl;
@@ -480,10 +481,6 @@ namespace strom
 
       if (_expected_log_likelihood != 0.0)
         std::cout << boost::str(boost::format("      (expecting %.3f)") % _expected_log_likelihood) << std::endl;
-    }
-    catch (XStrom &x)
-    {
-      std::cerr << "Strom encountered a problem:\n  " << x.what() << std::endl;
 
       // Create a Lot object that generates (pseudo)random numbers
       _lot = Lot::SharedPtr(new Lot);
@@ -522,6 +519,10 @@ namespace strom
       {
         std::cout << "\nMCMC skipped because there are no free parameters in the model" << std::endl;
       }
+    }
+    catch (XStrom &x)
+    {
+      std::cerr << "Strom encountered a problem:\n  " << x.what() << std::endl;
     }
 
     std::cout << "\nFinished!" << std::endl;

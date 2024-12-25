@@ -25,7 +25,7 @@ namespace strom
     virtual void proposeNewState();
 
   private:
-    double _prev_point();
+    double _prev_point;
     ASRV::SharedPtr _asrv;
   };
 
@@ -64,8 +64,8 @@ namespace strom
   {
     // Assumes Gamma(a,b) prior with mean a*b and variance a*b^2
     assert(_prior_parameters.size() == 2);
-    double a = _prior_parameters[0];
-    double b = _prior_parameters[1];
+    double prior_a = _prior_parameters[0];
+    double prior_b = _prior_parameters[1];
 
     double log_prior = 0.0;
     double curr_point = getCurrentPoint();
