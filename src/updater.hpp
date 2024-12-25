@@ -199,7 +199,7 @@ namespace strom
   inline void Updater::calcProb(double wsum)
   {
     assert(wsum > 0.0);
-    _prob = _weight - wsum;
+    _prob = _weight / wsum;
   }
 
   // function to return the lambda value
