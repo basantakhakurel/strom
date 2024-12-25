@@ -61,6 +61,9 @@ namespace strom
     const monomorphic_vect_t &getMonomorphic() const;
     const partition_key_t &getPartitionKey() const;
 
+    std::string createTaxaBlock() const;
+    std::string createTranslateStatement() const;
+
     void clear();
 
   private:
@@ -145,6 +148,38 @@ namespace strom
   inline const Data::data_matrix_t &Data::getDataMatrix() const
   {
     return _data_matrix;
+  }
+
+  // functions to create taxa block and translate statement for NEXUS file
+  inline std::string Data::createTaxaBlock() const
+  {
+    std::string s = "";
+    s += "begin taxa;\n";
+    s += boost::str(boost::format("  dimensions ntax=%d;\n") % _taxon_names.size());
+    s += "  taxlabels\n";
+    for (auto nm : _taxon_names)
+    {
+      std::string taxon_name = std::regex_replace(nm, std::regex(" "), "_");
+      s += "    " + taxon_name + "\n";
+    }
+    s += "    ;\n";
+    s += "end;\n";
+    return s;
+  }
+
+  inline std::string Data::createTranslateStatement() const
+  {
+    std::string s = "";
+    s += "  translate\n";
+    unsigned t = 1;
+    for (auto nm : _taxon_names)
+    {
+      std::string taxon_name = std::regex_replace(nm, std::regex(" "), "_");
+      s += boost::str(boost::format("    %d %s%s\n") % t % taxon_name % (t < _taxon_names.size() ? "," : ""));
+      t++;
+    }
+    s += "  ;\n";
+    return s;
   }
 
   // function to obtain a pair with pattern index (beginning and end)

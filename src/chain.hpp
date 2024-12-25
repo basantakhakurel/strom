@@ -207,6 +207,15 @@ namespace strom
     return retval;
   }
 
+  // function to return the names of the updaters
+  inline std::vector<std::string> Chain::getUpdaterNames() const
+  {
+    std::vector<std::string> v;
+    for (auto u : _updaters)
+      v.push_back(u->getUpdaterName());
+    return v;
+  }
+
   // function to provide the performance of each updater
   inline std::vector<double> Chain::getAcceptPercentage() const
   {

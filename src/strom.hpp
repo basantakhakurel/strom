@@ -7,6 +7,7 @@
 #include "partition.hpp"
 #include "lot.hpp"
 #include "chain.hpp"
+#include "output_manager.hpp"
 #include <boost/program_options.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -28,6 +29,7 @@ namespace strom
     bool processAssignmentString(const std::string &which, const std::string &definition);
     void handleAssignmentStrings(const boost::program_options::variables_map &vm, std::string label, const std::vector<std::string> &definitions, std::string default_definition);
     bool splitAssignmentString(const std::string &definition, std::vector<std::string> &vector_of_subset_names, std::vector<double> &vector_of_values);
+    void sample(unsigned iter, Chain &chain);
 
     double _expected_log_likelihood;
     std::string _data_file_name;
@@ -53,6 +55,8 @@ namespace strom
     static std::string _program_name;
     static unsigned _major_version;
     static unsigned _minor_version;
+
+    OutputManager::SharedPtr _output_manager;
   };
 
   // member functions
@@ -95,6 +99,7 @@ namespace strom
     _num_iter = 1000;
     _print_freq = 1;
     _sample_freq = 1;
+    _output_manager = nullptr;
   }
 
   /**
@@ -486,38 +491,64 @@ namespace strom
       _lot = Lot::SharedPtr(new Lot);
       _lot->setSeed(_random_seed);
 
+      // Create an output manager and open output files
+      _output_manager.reset(new OutputManager);
+
       // Create a Chain object and take _num_iter steps
       Chain chain;
       unsigned num_free_parameters = chain.createUpdaters(_model, _lot, _likelihood);
       if (num_free_parameters > 0)
       {
+        _output_manager->outputConsole(boost::str(boost::format("\n%12s %12s %12s %12s") % "iteration" % "logLike" % "logPrior" % "TL"));
+        _output_manager->openTreeFile("trees.tre", _data);
+        _output_manager->openParameterFile("params.txt", _model);
         chain.setTreeFromNewick(newick);
         chain.start();
 
         // Output column headers and first line of output showing starting state (iteration 0)
-        std::cout << boost::str(boost::format("\n%12s %12s %12s %12s %12s %12s\n") % "iteration" % "lnLike" % "lnPrior" % "ratevar" % "accept" % "samples");
-        GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
-        std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % 0 % chain.getLogLikelihood() % chain.calcLogJointPrior() % ratevar_updater->getCurrentPoint() % 0 % 0);
+        // std::cout << boost::str(boost::format("\n%12s %12s %12s %12s %12s %12s\n") % "iteration" % "lnLike" % "lnPrior" % "ratevar" % "accept" % "samples");
+        // GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
+        // std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % 0 % chain.getLogLikelihood() % chain.calcLogJointPrior() % ratevar_updater->getCurrentPoint() % 0 % 0);
+        sample(0, chain);
 
         for (unsigned iteration = 1; iteration <= _num_iter; ++iteration)
         {
           chain.nextStep(iteration);
+          sample(iteration, chain);
 
-          if (iteration % _sample_freq == 0)
-          {
-            GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
-            double log_prior = chain.calcLogJointPrior();
-            if (log_prior == Updater::getLogZero())
-              std::cout << boost::str(boost::format("%12d %12.5f %12s %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % "-infinity" % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
-            else
-              std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % log_prior % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
-          }
+          // if (iteration % _sample_freq == 0)
+          // {
+          // GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
+          // double log_prior = chain.calcLogJointPrior();
+          // if (log_prior == Updater::getLogZero())
+          // std::cout << boost::str(boost::format("%12d %12.5f %12s %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % "-infinity" % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
+          // else
+          // std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % log_prior % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
+          // }
         }
         chain.stop();
+
+        // Close output files
+        _output_manager->closeTreeFile();
+        _output_manager->closeParameterFile();
+
+        // Summarize updater efficiency
+        _output_manager->outputConsole("\nChain summary:");
+        std::vector<std::string> names = chain.getUpdaterNames();
+        std::vector<double> lambdas = chain.getLambdas();
+        std::vector<double> accepts = chain.getAcceptPercentage();
+        std::vector<unsigned> nupdates = chain.getNumUpdates();
+        unsigned n = (unsigned)names.size();
+        _output_manager->outputConsole(boost::str(boost::format("%30s %15s %15s %15s") % "Updater" % "Tuning Param." % "Accept %" % "No. Updates"));
+        for (unsigned i = 0; i < n; ++i)
+        {
+          _output_manager->outputConsole(boost::str(boost::format("%30s %15.3f %15.1f %15d") % names[i] % lambdas[i] % accepts[i] % nupdates[i]));
+        }
       }
       else
       {
-        std::cout << "\nMCMC skipped because there are no free parameters in the model" << std::endl;
+        // std::cout << "\nMCMC skipped because there are no free parameters in the model" << std::endl;
+        _output_manager->outputConsole("\nMCMC skipped because there are no free parameters in the model");
       }
     }
     catch (XStrom &x)
@@ -526,5 +557,33 @@ namespace strom
     }
 
     std::cout << "\nFinished!" << std::endl;
+  }
+
+  // function to sample the chain
+  inline void Strom::sample(unsigned iteration, Chain &chain)
+  {
+    if (chain.getHeatingPower() < 1.0)
+      return;
+
+    bool time_to_sample = (bool)(iteration % _sample_freq == 0);
+    bool time_to_report = (bool)(iteration % _print_freq == 0);
+    if (time_to_sample || time_to_report)
+    {
+      double logLike = chain.getLogLikelihood();
+      double logPrior = chain.calcLogJointPrior();
+      double TL = chain.getTreeManip()->calcTreeLength();
+      if (time_to_report)
+      {
+        if (logPrior == Updater::getLogZero())
+          _output_manager->outputConsole(boost::str(boost::format("%12d %12.5f %12s %12.5f") % iteration % logLike % "-infinity" % TL));
+        else
+          _output_manager->outputConsole(boost::str(boost::format("%12d %12.5f %12.5f %12.5f") % iteration % logLike % logPrior % TL));
+      }
+      if (time_to_sample)
+      {
+        _output_manager->outputTree(iteration, chain.getTreeManip());
+        _output_manager->outputParameters(iteration, logLike, logPrior, TL, chain.getModel());
+      }
+    }
   }
 }

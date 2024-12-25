@@ -85,6 +85,9 @@ namespace strom
     int setBeagleAmongSiteRateVariationRates(int beagle_instance, unsigned subset, unsigned instance_subset);
     int setBeagleAmongSiteRateVariationProbs(int beagle_instance, unsigned subset, unsigned instance_subset);
 
+    std::string paramNamesAsString(std::string sep) const;
+    std::string paramValuesAsString(std::string sep) const;
+
   private:
     void clear();
 
@@ -779,5 +782,82 @@ namespace strom
         pprobs);         // Category weights array (categoryCount) (input)
 
     return code;
+  }
+
+  // function to create a row of parameter names (headers)
+  inline std::string Model::paramNamesAsString(std::string sep) const
+  {
+    unsigned k;
+    std::string s = "";
+    if (_num_subsets > 1)
+    {
+      for (k = 0; k < _num_subsets; k++)
+      {
+        s += boost::str(boost::format("m-%d%s") % k % sep);
+      }
+    }
+    for (k = 0; k < _num_subsets; k++)
+    {
+      if (_subset_datatypes[k].isNucleotide())
+      {
+        s += boost::str(boost::format("rAC-%d%srAG-%d%srAT-%d%srCG-%d%srCT-%d%srGT-%d%s") % k % sep % k % sep % k % sep % k % sep % k % sep % k % sep);
+        s += boost::str(boost::format("piA-%d%spiC-%d%spiG-%d%spiT-%d%s") % k % sep % k % sep % k % sep % k % sep);
+      }
+      else if (_subset_datatypes[k].isCodon())
+      {
+        s += boost::str(boost::format("omega-%d%s") % k % sep);
+        for (std::string codon : _subset_datatypes[0].getGeneticCode()->_codons)
+          s += boost::str(boost::format("pi%s-%d%s") % codon % k % sep);
+      }
+      if (_asrv[k]->getIsInvarModel())
+      {
+        s += boost::str(boost::format("pinvar-%d%s") % k % sep);
+      }
+      if (_asrv[k]->getNumCateg() > 1)
+      {
+        s += boost::str(boost::format("ratevar-%d%s") % k % sep);
+      }
+    }
+    return s;
+  }
+
+  // function to output current parameter values
+  inline std::string Model::paramValuesAsString(std::string sep) const
+  {
+    unsigned k;
+    std::string s = "";
+    if (_num_subsets > 1)
+    {
+      for (k = 0; k < _num_subsets; k++)
+      {
+        s += boost::str(boost::format("%.5f%s") % _subset_relrates[k] % sep);
+      }
+    }
+    for (k = 0; k < _num_subsets; k++)
+    {
+      if (_subset_datatypes[k].isNucleotide())
+      {
+        QMatrix::freq_xchg_t x = *_qmatrix[k]->getExchangeabilitiesSharedPtr();
+        s += boost::str(boost::format("%.5f%s%.5f%s%.5f%s%.5f%s%.5f%s%.5f%s") % x[0] % sep % x[1] % sep % x[2] % sep % x[3] % sep % x[4] % sep % x[5] % sep);
+        QMatrix::freq_xchg_t f = *_qmatrix[k]->getStateFreqsSharedPtr();
+        s += boost::str(boost::format("%.5f%s%.5f%s%.5f%s%.5f%s") % f[0] % sep % f[1] % sep % f[2] % sep % f[3] % sep);
+      }
+      else if (_subset_datatypes[k].isCodon())
+      {
+        s += boost::str(boost::format("%.5f%s") % _qmatrix[k]->getOmega() % sep);
+        QMatrix::freq_xchg_t f = *_qmatrix[k]->getStateFreqsSharedPtr();
+        for (unsigned m = 0; m < _subset_datatypes[0].getNumStates(); m++)
+          s += boost::str(boost::format("%.5f%s") % f[m] % sep);
+      }
+      if (_asrv[k]->getIsInvarModel())
+      {
+        s += boost::str(boost::format("%.5f%s") % _asrv[k]->getPinvar() % sep);
+      }
+      if (_asrv[k]->getNumCateg() > 1)
+      {
+        s += boost::str(boost::format("%.5f%s") % _asrv[k]->getRateVar() % sep);
+      }
+    }
+    return s;
   }
 }
