@@ -3,6 +3,7 @@ project(
   'cpp',
   default_options: [
     'cpp_std=c++11',
+    'buildtype=release',
     'prefix=/home/basanta/projects/strom/distr',
   ],
   version: '1.0',
