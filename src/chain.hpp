@@ -10,6 +10,11 @@
 #include "tree_manip.hpp"
 #include "updater.hpp"
 #include "gamma_ratevar_updater.hpp"
+#include "omega_updater.hpp"
+#include "pinvar_updater.hpp"
+#include "statefreq_updater.hpp"
+#include "exchangeability_updater.hpp"
+#include "subset_relrate_updater.hpp"
 
 namespace strom
 {
@@ -126,6 +131,36 @@ namespace strom
     double wstd = 1.0;
     double sum_weights = 0.0;
 
+    // Add state frequency parameter updaters to _updaters
+    Model::state_freq_params_t &statefreq_shptr_vect = _model->getStateFreqParams();
+    for (auto statefreq_shptr : statefreq_shptr_vect)
+    {
+      Updater::SharedPtr u = StateFreqUpdater::SharedPtr(new StateFreqUpdater(statefreq_shptr));
+      u->setLikelihood(likelihood);
+      u->setLot(lot);
+      u->setLambda(1.0);
+      u->setTargetAcceptanceRate(0.3);
+      u->setPriorParameters(std::vector<double>(statefreq_shptr->getStateFreqsSharedPtr()->size(), 1.0));
+      u->setWeight(wstd);
+      sum_weights += wstd;
+      _updaters.push_back(u);
+    }
+
+    // Add exchangeability parameter updaters to _updaters
+    Model::exchangeability_params_t &exchangeability_shptr_vect = _model->getExchangeabilityParams();
+    for (auto exchangeability_shptr : exchangeability_shptr_vect)
+    {
+      Updater::SharedPtr u = ExchangeabilityUpdater::SharedPtr(new ExchangeabilityUpdater(exchangeability_shptr));
+      u->setLikelihood(likelihood);
+      u->setLot(lot);
+      u->setLambda(1.0);
+      u->setTargetAcceptanceRate(0.3);
+      u->setPriorParameters({1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
+      u->setWeight(wstd);
+      sum_weights += wstd;
+      _updaters.push_back(u);
+    }
+
     // Add rate variance parameter updater to _updaters
     Model::ratevar_params_t &ratevar_shptr_vect = _model->getRateVarParams();
     for (auto ratevar_shptr : ratevar_shptr_vect)
@@ -136,6 +171,50 @@ namespace strom
       u->setLambda(1.0);
       u->setTargetAcceptanceRate(0.3);
       u->setPriorParameters({1.0, 1.0});
+      u->setWeight(wstd);
+      sum_weights += wstd;
+      _updaters.push_back(u);
+    }
+
+    // Add pinvar parameter updaters to _updaters
+    Model::pinvar_params_t &pinvar_shptr_vect = _model->getPinvarParams();
+    for (auto pinvar_shptr : pinvar_shptr_vect)
+    {
+      Updater::SharedPtr u = PinvarUpdater::SharedPtr(new PinvarUpdater(pinvar_shptr));
+      u->setLikelihood(likelihood);
+      u->setLot(lot);
+      u->setLambda(0.5);
+      u->setTargetAcceptanceRate(0.3);
+      u->setPriorParameters({1.0, 1.0});
+      u->setWeight(wstd);
+      sum_weights += wstd;
+      _updaters.push_back(u);
+    }
+
+    // Add omega parameter updaters to _updaters
+    Model::omega_params_t &omega_shptr_vect = _model->getOmegaParams();
+    for (auto omega_shptr : omega_shptr_vect)
+    {
+      Updater::SharedPtr u = OmegaUpdater::SharedPtr(new OmegaUpdater(omega_shptr));
+      u->setLikelihood(likelihood);
+      u->setLot(lot);
+      u->setLambda(1.0);
+      u->setTargetAcceptanceRate(0.3);
+      u->setPriorParameters({1.0, 1.0});
+      u->setWeight(wstd);
+      sum_weights += wstd;
+      _updaters.push_back(u);
+    }
+
+    // Add subset relative rate parameter updater to _updaters
+    if (!_model->isFixedSubsetRelRates())
+    {
+      Updater::SharedPtr u = SubsetRelRateUpdater::SharedPtr(new SubsetRelRateUpdater(_model));
+      u->setLikelihood(likelihood);
+      u->setLot(lot);
+      u->setLambda(1.0);
+      u->setTargetAcceptanceRate(0.3);
+      u->setPriorParameters(std::vector<double>(_model->getNumSubsets(), 1.0));
       u->setWeight(wstd);
       sum_weights += wstd;
       _updaters.push_back(u);

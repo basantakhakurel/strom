@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <numeric>
 #include <vector>
 #include <Eigen/Dense>
 #include "genetic_code.hpp"
