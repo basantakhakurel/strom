@@ -422,6 +422,11 @@ namespace strom
     return fixed;
   }
 
+  /**
+   * The main entry point for the Strom program.
+   *
+   * @note If any errors occur while running Strom, an XStrom exception will be thrown.
+   */
   inline void Strom::run()
   {
     std::cout << "Starting..." << std::endl;
@@ -493,6 +498,8 @@ namespace strom
 
       // Create an output manager and open output files
       _output_manager.reset(new OutputManager);
+
+      _likelihood->useStoredData(false);
 
       // Create a Chain object and take _num_iter steps
       Chain chain;

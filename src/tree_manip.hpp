@@ -9,6 +9,7 @@
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/format.hpp>
 #include "tree.hpp"
+#include "lot.hpp"
 #include "xstrom.hpp"
 
 namespace strom
@@ -34,6 +35,10 @@ namespace strom
     void buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies);
     void storeSplits(std::set<Split> &splitset);
     void rerootAtNodeNumber(int node_number);
+
+    Node *randomInternalEdge(Lot::SharedPtr lot);
+    Node *randomChild(Lot::SharedPtr lot, Node *x, Node *avoid, bool parent_included);
+    void LargetSimonSwap(Node *a, Node *b);
 
     void selectAll();
     void deselectAll();
@@ -604,8 +609,16 @@ namespace strom
     return nd_can_have_sibling;
   }
 
-  // here the tip node (a leaf) serves at the root node for unrooted trees only
-
+  /**
+   * Reroot the tree at the node with number equal to node_number.
+   *
+   * If node_number does not correspond to any node in the tree, throw an XStrom
+   * exception. If node_number corresponds to an internal node, throw an XStrom
+   * exception because it is not currently possible to root trees at internal
+   * nodes. If the tree is already rooted at node_number, do nothing.
+   *
+   * \param node_number the number of the node at which to root the tree
+   */
   inline void TreeManip::rerootAtNodeNumber(int node_number)
   {
     // Locate node having _number equal to node_number
@@ -630,6 +643,338 @@ namespace strom
     }
   }
 
+  /**
+   * \brief Choose a node at random from the internal nodes of the tree.
+   *
+   * The algorithm used here to choose a node at random is a bit tricky, so it
+   * is explained in detail below.
+   *
+   * Begin by calculating the number of internal nodes in the tree. This is
+   * done by subtracting the number of leaves from the preorder length of the
+   * tree. If the tree is rooted, subtract one from the result.
+   *
+   * Next, draw a uniform deviate from [0, 1) and multiply it by the number of
+   * internal nodes. Take the floor of this result to obtain an index into the
+   * preorder vector. However, add one to this index to skip over the first
+   * internal node in the preorder vector, which is either a terminal edge (if
+   * the tree is unrooted) or invalid (if the tree is rooted).
+   *
+   * Finally, iterate over the preorder vector, keeping track of the number of
+   * internal nodes seen so far. When the number of internal nodes seen equals
+   * the index calculated above, return the current node in the preorder
+   * vector.
+   *
+   * \param lot the random number generator
+   * \return a randomly chosen internal node from the tree
+   */
+  inline Node *TreeManip::randomInternalEdge(Lot::SharedPtr lot)
+  {
+    // Unrooted case:                        Rooted case:
+    //
+    // 2     3     4     5                   1     2     3     4
+    //  \   /     /     /                     \   /     /     /
+    //   \ /     /     /                       \ /     /     /
+    //    8     /     /                         7     /     /
+    //     \   /     /                           \   /     /
+    //      \ /     /                             \ /     /
+    //       7     /                               6     /
+    //        \   /                                 \   /
+    //         \ /                                   \ /
+    //          6   nleaves = 5                       5   nleaves = 4
+    //          |   preorder length = 7               |    preorder length = 7
+    //          |   num_internal_edges = 7 - 5 = 2    |    num_internal_edges = 7 - 4 - 1 = 2
+    //          1   choose node 7 or node 8          root  choose node 6 or node 7
+    //
+    // _preorder = [6, 7, 8, 2, 3, 4, 5]     _preorder = [5, 6, 7, 1, 2, 3, 4]
+    //
+    // Note: _preorder is actually a vector of T *, but is shown here as a
+    // vector of integers solely to illustrate the algorithm below
+
+    int num_internal_edges = (unsigned)_tree->_preorder.size() - _tree->_nleaves - (_tree->_is_rooted ? 1 : 0);
+
+    // Add one to skip first node in _preorder vector, which is an internal node whose edge
+    // is either a terminal edge (if tree is unrooted) or invalid (if tree is rooted)
+    double uniform_deviate = lot->uniform();
+    unsigned index_of_chosen = 1 + (unsigned)std::floor(uniform_deviate * num_internal_edges);
+
+    unsigned internal_nodes_visited = 0;
+    Node *chosen_node = 0;
+    for (auto nd : _tree->_preorder)
+    {
+      if (nd->_left_child)
+      {
+        if (internal_nodes_visited == index_of_chosen)
+        {
+          chosen_node = nd;
+          break;
+        }
+        else
+          ++internal_nodes_visited;
+      }
+    }
+    assert(chosen_node);
+    return chosen_node;
+  }
+
+  /**
+   * \brief Choose a random child of x, avoiding the node specified by `avoid`.
+   *
+   * The `parent_included` flag specifies whether the parent of x can be chosen.
+   *
+   * @param lot Lot object used to generate random numbers
+   * @param x Node whose children are to be chosen
+   * @param avoid Node that is to be avoided when choosing a child
+   * @param parent_included Flag indicating whether the parent of x can be chosen
+   * @returns A pointer to the chosen node, or NULL if the parent was chosen
+   */
+  inline Node *TreeManip::randomChild(Lot::SharedPtr lot, Node *x, Node *avoid, bool parent_included)
+  {
+    // Count number of children of x
+    unsigned n = 0;
+    Node *child = x->getLeftChild();
+    while (child)
+    {
+      if (child != avoid)
+        n++;
+      child = child->getRightSib();
+    }
+
+    // Choose random child index
+    unsigned upper = n + (parent_included ? 1 : 0);
+    unsigned chosen = lot->randint(0, upper - 1);
+
+    // If chosen < n, then find and return that particular child
+    if (chosen < n)
+    {
+      child = x->getLeftChild();
+      unsigned i = 0;
+      while (child)
+      {
+        if (child != avoid && i == chosen)
+          return child;
+        else if (child != avoid)
+          i++;
+        child = child->getRightSib();
+      }
+    }
+
+    // If chosen equals n, then the parent was chosen, indicated by returning NULL
+    return NULL;
+  }
+
+  /**
+   * \brief Perform a Larget-Simon move on the tree.
+   *
+   * The Larget-Simon move is a tree rearrangement move that can be used in MCMC
+   * simulations. It is a two-step move: first, a random internal node is chosen,
+   * and then one of its children is chosen at random. The node that was not
+   * chosen is then regrafted onto one of the other edges of the tree.
+   *
+   * @param a One of the two nodes that define the 3-edge path to be rearranged
+   * @param b The other node that defines the 3-edge path to be rearranged
+   */
+  inline void TreeManip::LargetSimonSwap(Node *a, Node *b)
+
+  {
+    // a and b are the ends of the selected 3-edge path in a Larget-Simon move
+    // The 3-edge path is indicated by parentheses around the nodes involved.
+    // x is always the parent of a
+    // y can be the parent of b (case 1) or the child of b (case 2)
+
+    Node *x = a->_parent;
+    assert(x);
+
+    Node *y = x->_parent;
+    assert(y);
+
+    if (y == b->_parent)
+    {
+      // Case 1: y is the parent of b
+      //
+      //    (a) d  e             (b) d  e
+      //      \ | /                \ | /
+      //       \|/                  \|/
+      //       (x) f (b)            (x) f (a)    Swap a and b, leaving everything
+      //         \ | /                \ | /      else as is
+      //          \|/     ==>          \|/
+      //          (y)                  (y)
+      //           |                    |
+      //           |                    |
+      //           c                    c
+      //
+
+      // Detach a from tree
+      if (a == x->_left_child)
+      {
+        x->_left_child = a->_right_sib;
+      }
+      else
+      {
+        Node *child = x->_left_child;
+        while (child->_right_sib != a)
+          child = child->_right_sib;
+        child->_right_sib = a->_right_sib;
+      }
+      a->_parent = 0;
+      a->_right_sib = 0;
+
+      // Detach b from tree
+      if (b == y->_left_child)
+      {
+        y->_left_child = b->_right_sib;
+      }
+      else
+      {
+        Node *child = y->_left_child;
+        while (child->_right_sib != b)
+          child = child->_right_sib;
+        child->_right_sib = b->_right_sib;
+      }
+      b->_parent = 0;
+      b->_right_sib = 0;
+
+      // Reattach a to y
+      a->_right_sib = y->_left_child;
+      y->_left_child = a;
+      a->_parent = y;
+
+      // Reattach b to x
+      b->_right_sib = x->_left_child;
+      x->_left_child = b;
+      b->_parent = x;
+    }
+    else
+    {
+      // Case 2: y is the child of b
+      //
+      //    (a) d  e             (a) f  c
+      //      \ | /                \ | /
+      //       \|/                  \|/
+      //       (x) f  c            (x) d  e    swap x's children (except a)
+      //         \ | /               \ | /     with y's children (except x)
+      //          \|/     ==>         \|/
+      //          (y)                 (y)
+      //           |                   |
+      //           |                   |
+      //          (b)                 (b)
+      assert(b == y->_parent);
+
+      // Remove x's children from tree and store in xchildren stack
+      std::stack<Node *> xchildren;
+      Node *child = x->_left_child;
+      Node *prevchild = 0;
+      while (child)
+      {
+        if (child == a)
+        {
+          prevchild = child;
+          child = child->_right_sib;
+        }
+        else
+        {
+          if (child == x->_left_child)
+          {
+            x->_left_child = child->_right_sib;
+            child->_right_sib = 0;
+            child->_parent = 0;
+            xchildren.push(child);
+            child = x->_left_child;
+          }
+          else if (child->_right_sib)
+          {
+            prevchild->_right_sib = child->_right_sib;
+            child->_right_sib = 0;
+            child->_parent = 0;
+            xchildren.push(child);
+            child = prevchild->_right_sib;
+          }
+          else
+          {
+            assert(prevchild == a);
+            a->_right_sib = 0;
+            child->_parent = 0;
+            xchildren.push(child);
+            child = 0;
+            prevchild = 0;
+          }
+        }
+      }
+
+      // Remove y's children from tree and store in ychildren stack
+      std::stack<Node *> ychildren;
+      child = y->_left_child;
+      prevchild = 0;
+      while (child)
+      {
+        if (child == x)
+        {
+          prevchild = child;
+          child = child->_right_sib;
+        }
+        else
+        {
+          if (child == y->_left_child)
+          {
+            y->_left_child = child->_right_sib;
+            child->_right_sib = 0;
+            child->_parent = 0;
+            ychildren.push(child);
+            child = y->_left_child;
+          }
+          else if (child->_right_sib)
+          {
+            prevchild->_right_sib = child->_right_sib;
+            child->_right_sib = 0;
+            child->_parent = 0;
+            ychildren.push(child);
+            child = prevchild->_right_sib;
+          }
+          else
+          {
+            assert(prevchild == x);
+            x->_right_sib = 0;
+            child->_parent = 0;
+            ychildren.push(child);
+            child = 0;
+            prevchild = 0;
+          }
+        }
+      }
+
+      // Reattach xchildren to y
+      while (!xchildren.empty())
+      {
+        Node *popped = xchildren.top();
+        xchildren.pop();
+        popped->_right_sib = y->_left_child;
+        y->_left_child = popped;
+        popped->_parent = y;
+      }
+
+      // Reattach ychildren to x
+      while (!ychildren.empty())
+      {
+        Node *popped = ychildren.top();
+        ychildren.pop();
+        popped->_right_sib = x->_left_child;
+        x->_left_child = popped;
+        popped->_parent = x;
+      }
+    }
+
+    refreshPreorder();
+    refreshLevelorder();
+  }
+
+  /**
+   * \brief Reroot tree at a given node.
+   *
+   * This is a destructive operation. It will rotate the tree so that the
+   * given node becomes the root, and all other nodes are rearranged
+   * accordingly. The edge lengths of the tree will also be rearranged.
+   *
+   * @param prospective_root The node that will become the root of the tree
+   */
   inline void TreeManip::rerootAtNode(Node *prospective_root)
   {
     Node *a = prospective_root;

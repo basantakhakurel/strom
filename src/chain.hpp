@@ -15,6 +15,8 @@
 #include "statefreq_updater.hpp"
 #include "exchangeability_updater.hpp"
 #include "subset_relrate_updater.hpp"
+#include "tree_updater.hpp"
+#include "tree_length_updater.hpp"
 
 namespace strom
 {
@@ -121,7 +123,21 @@ namespace strom
       u->setTreeManip(_tree_manipulator);
   }
 
-  // function to create updaters
+  /**
+   * @brief Create updaters for various model parameters and add them to the chain.
+   *
+   * This function initializes and configures updaters for different model
+   * parameters such as state frequencies, exchangeabilities, rate variances,
+   * pinvar, omega, subset relative rates, and tree parameters. Each updater is
+   * assigned a likelihood, a random number generator (lot), lambda value, target
+   * acceptance rate, prior parameters, and a weight. The sum of the weights is
+   * calculated and used to determine the probability for each updater.
+   *
+   * @param model Shared pointer to the Model object containing parameters.
+   * @param lot Shared pointer to the Lot object for random number generation.
+   * @param likelihood Shared pointer to the Likelihood object.
+   * @return The total number of updaters created and added to the chain.
+   */
   inline unsigned Chain::createUpdaters(Model::SharedPtr model, Lot::SharedPtr lot, Likelihood::SharedPtr likelihood)
   {
     _model = model;
@@ -129,6 +145,8 @@ namespace strom
     _updaters.clear();
 
     double wstd = 1.0;
+    double wtreelength = 1.0;
+    double wtreetopology = 19.0;
     double sum_weights = 0.0;
 
     // Add state frequency parameter updaters to _updaters
@@ -217,6 +235,34 @@ namespace strom
       u->setPriorParameters(std::vector<double>(_model->getNumSubsets(), 1.0));
       u->setWeight(wstd);
       sum_weights += wstd;
+      _updaters.push_back(u);
+    }
+
+    // Add tree updater and tree length updater to _updaters
+    if (!_model->isFixedTree())
+    {
+      double tree_length_shape = 1.0;
+      double tree_length_scale = 10.0;
+      double dirichlet_param = 1.0;
+
+      Updater::SharedPtr u = TreeUpdater::SharedPtr(new TreeUpdater());
+      u->setLikelihood(likelihood);
+      u->setLot(lot);
+      u->setLambda(0.5);
+      u->setTargetAcceptanceRate(0.3);
+      u->setPriorParameters({tree_length_shape, tree_length_scale, dirichlet_param});
+      u->setWeight(wtreetopology);
+      sum_weights += wtreetopology;
+      _updaters.push_back(u);
+
+      u = TreeLengthUpdater::SharedPtr(new TreeLengthUpdater());
+      u->setLikelihood(likelihood);
+      u->setLot(lot);
+      u->setLambda(0.2);
+      u->setTargetAcceptanceRate(0.3);
+      u->setPriorParameters({tree_length_shape, tree_length_scale, dirichlet_param});
+      u->setWeight(wtreelength);
+      sum_weights += wtreelength;
       _updaters.push_back(u);
     }
 
@@ -322,6 +368,14 @@ namespace strom
     return v;
   }
 
+  /**
+   * Sets the lambda values for all of the updaters.
+   *
+   * Each element of the input vector v is used to set the lambda value for the
+   * corresponding updater (as returned by getUpdaterNames()). The size of v
+   * must match the size of the vector returned by getUpdaterNames(). The
+   * lambda values are used to scale the proposals for each updater.
+   */
   inline void Chain::setLambdas(std::vector<double> &v)
   {
     assert(v.size() == _updaters.size());
@@ -344,7 +398,8 @@ namespace strom
     double lnP = 0.0;
     for (auto u : _updaters)
     {
-      lnP += u->calcLogPrior();
+      if (u->_name != "Tree Length")
+        lnP += u->calcLogPrior();
     }
     return lnP;
   }
