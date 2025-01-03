@@ -123,7 +123,7 @@ namespace strom
     }
     else
     {
-      b_is_child_of_y = true;
+      b_is_child_of_y = false;
       _b = _y->getParent();
       _orig_edgelen_bottom = _y->getEdgeLength();
     }
