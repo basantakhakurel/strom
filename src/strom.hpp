@@ -26,20 +26,36 @@ namespace strom
     void run();
 
   private:
-    bool processAssignmentString(const std::string &which, const std::string &definition);
-    void handleAssignmentStrings(const boost::program_options::variables_map &vm, std::string label, const std::vector<std::string> &definitions, std::string default_definition);
+    bool processAssignmentString(Model::SharedPtr m, const std::string &which, const std::string &definition);
+    void handleAssignmentStrings(Model::SharedPtr m, const boost::program_options::variables_map &vm, std::string label, const std::vector<std::string> &definitions, std::string default_definition);
     bool splitAssignmentString(const std::string &definition, std::vector<std::string> &vector_of_subset_names, std::vector<double> &vector_of_values);
     void sample(unsigned iter, Chain &chain);
 
+    void readData();
+    void readTrees();
+    void showPartitionInfo();
+    void showBeagleInfo();
+    void showMCMCInfo();
+    void calcHeatingPowers();
+    void initChains();
+    void startTuningChains();
+    void stopTuningChains();
+    void stepChains(unsigned iteration, bool sampling);
+    void swapChains();
+    void stopChains();
+    void swapSummary() const;
+    void showChainTuningInfo() const;
+
     double _expected_log_likelihood;
+
     std::string _data_file_name;
     std::string _tree_file_name;
-
     Partition::SharedPtr _partition;
 
     Data::SharedPtr _data;
-    Model::SharedPtr _model;
-    Likelihood::SharedPtr _likelihood;
+    std::vector<Likelihood::SharedPtr> _likelihoods;
+    // Model::SharedPtr _model;
+    // Likelihood::SharedPtr _likelihood;
     TreeSummary::SharedPtr _tree_summary;
     Lot::SharedPtr _lot;
 
@@ -47,6 +63,14 @@ namespace strom
     unsigned _num_iter;
     unsigned _print_freq;
     unsigned _sample_freq;
+
+    unsigned _num_burnin_iter;
+    unsigned _num_chains;
+    double _heating_lambda;
+    bool _using_stored_data;
+    std::vector<Chain> _chains;
+    std::vector<double> _heating_powers;
+    std::vector<unsigned> _swaps;
 
     bool _use_gpu;
     bool _ambig_missing;
@@ -59,16 +83,29 @@ namespace strom
     OutputManager::SharedPtr _output_manager;
   };
 
-  // member functions
-
-  // constructor
+  /**
+   * @brief Constructor for Strom
+   *
+   * Clears all data members. Note that this does not actually
+   * allocate any memory, so it is safe to construct a Strom without
+   * actually using it.
+   */
   inline Strom::Strom()
   {
     // std::cout << "Constructing a Strom" << std::endl;
     clear();
   }
 
-  // destructor
+  /**
+   * @brief Destructor for Strom
+   *
+   * Does nothing. Strom instances are "fire and forget" objects.
+   * Once a Strom instance is constructed, the Strom will
+   * automatically run to completion, and then immediately
+   * destroy itself.
+   *
+   * @returns void
+   */
   inline Strom::~Strom()
   {
     // std::cout << "Destroying a Strom" << std::endl;
@@ -89,10 +126,10 @@ namespace strom
     _partition.reset(new Partition());
     _use_gpu = true;
     _ambig_missing = true;
-    _model.reset(new Model());
+    // _model.reset(new Model());
     _expected_log_likelihood = 0.0;
     _data = nullptr;
-    _likelihood = nullptr;
+    // _likelihood = nullptr;
     _use_underflow_scaling = false;
     _lot = nullptr;
     _random_seed = 1;
@@ -100,6 +137,15 @@ namespace strom
     _print_freq = 1;
     _sample_freq = 1;
     _output_manager = nullptr;
+
+    _using_stored_data = true;
+    _likelihoods.clear();
+    _num_burnin_iter = 1000;
+    _heating_lambda = 0.5;
+    _num_chains = 1;
+    _chains.resize(0);
+    _heating_powers.resize(0);
+    _swaps.resize(0);
   }
 
   /**
@@ -116,7 +162,6 @@ namespace strom
    *
    * @throws boost::program_options::readinf_file If the configuration file cannot be read.
    */
-
   inline void Strom::processCommandLineOptions(int argc, const char *argv[])
   {
     std::vector<std::string> partition_statefreq;
@@ -130,7 +175,7 @@ namespace strom
     std::vector<std::string> partition_tree;
     boost::program_options::variables_map vm;
     boost::program_options::options_description desc("Allowed options");
-    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("seed,z", boost::program_options::value(&_random_seed)->default_value(1), "pseudorandom number seed")("niter,n", boost::program_options::value(&_num_iter)->default_value(1000), "number of MCMC iterations")("printfreq", boost::program_options::value(&_print_freq)->default_value(1), "skip this many iterations before reporting progress")("samplefreq", boost::program_options::value(&_sample_freq)->default_value(1), "skip this many iterations before sampling next")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
+    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("seed,z", boost::program_options::value(&_random_seed)->default_value(1), "pseudorandom number seed")("niter,n", boost::program_options::value(&_num_iter)->default_value(1000), "number of MCMC iterations")("printfreq", boost::program_options::value(&_print_freq)->default_value(1), "skip this many iterations before reporting progress")("samplefreq", boost::program_options::value(&_sample_freq)->default_value(1), "skip this many iterations before sampling next")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("nchains", boost::program_options::value(&_num_chains)->default_value(1), "number of chains")("heatfactor", boost::program_options::value(&_heating_lambda)->default_value(0.5), "determines how hot the heated chains are")("burnin", boost::program_options::value(&_num_burnin_iter)->default_value(100), "number of iterations used to burn in chains")("usedata", boost::program_options::value(&_using_stored_data)->default_value(true), "use the stored data in calculating likelihoods (specify no to explore the prior)")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
 
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
     try
@@ -169,26 +214,58 @@ namespace strom
       }
     }
 
-    _model->setSubsetDataTypes(_partition->getSubsetDataTypes());
+    // Be sure number of chains is greater than or equal to 1
+    if (_num_chains < 1)
+      throw XStrom("nchains must be a positive integer greater than 0");
 
-    handleAssignmentStrings(vm, "statefreq", partition_statefreq, "default:equal");
-    handleAssignmentStrings(vm, "rmatrix", partition_rmatrix, "default:equal");
-    handleAssignmentStrings(vm, "omega", partition_omega, "default:0.1");
-    handleAssignmentStrings(vm, "ncateg", partition_ncateg, "default:1");
-    handleAssignmentStrings(vm, "ratevar", partition_ratevar, "default:1.0");
-    handleAssignmentStrings(vm, "pinvar", partition_pinvar, "default:0.0");
-    handleAssignmentStrings(vm, "relrate", partition_relrates, "default:equal");
-    handleAssignmentStrings(vm, "tree", partition_tree, "default:1");
+    // Be sure heating factor is between 0 and 1
+    if (_heating_lambda <= 0.0 || _heating_lambda > 1.0)
+      throw XStrom("heatfactor must be a real number in the interval (0.0, 1.0]");
+
+    if (!_using_stored_data)
+      std::cout << "\n*** Not using stored data (posterior = prior) ***\n"
+                << std::endl;
+
+    // allocate a separate model for each chain
+    for (unsigned c = 0; c < _num_chains; c++)
+    {
+      Likelihood::SharedPtr likelihood = Likelihood::SharedPtr(new Likelihood());
+      likelihood->setPreferGPU(_use_gpu);
+      likelihood->setAmbiguityEqualsMissing(_ambig_missing);
+      Model::SharedPtr m = likelihood->getModel();
+      m->setSubsetDataTypes(_partition->getSubsetDataTypes());
+      handleAssignmentStrings(m, vm, "statefreq", partition_statefreq, "default:equal");
+      handleAssignmentStrings(m, vm, "rmatrix", partition_rmatrix, "default:equal");
+      handleAssignmentStrings(m, vm, "omega", partition_omega, "default:0.1");
+      handleAssignmentStrings(m, vm, "ncateg", partition_ncateg, "default:1");
+      handleAssignmentStrings(m, vm, "ratevar", partition_ratevar, "default:1.0");
+      handleAssignmentStrings(m, vm, "pinvar", partition_pinvar, "default:0.0");
+      handleAssignmentStrings(m, vm, "relrate", partition_relrates, "default:equal");
+      handleAssignmentStrings(m, vm, "tree", partition_tree, "default:1");
+      _likelihoods.push_back(likelihood);
+    }
   }
 
-  inline void Strom::handleAssignmentStrings(const boost::program_options::variables_map &vm, std::string label, const std::vector<std::string> &definitions, std::string default_definition)
+  /**
+   * This function is used to process multiple assignment strings for a model component.
+   * It is used to process strings that are provided on the command line using options
+   * such as --statefreq, --rmatrix, --omega, --ncateg, --ratevar, --pinvar, --relrate,
+   * or --tree.
+   *
+   * @param m The model whose component is being set.
+   * @param vm The program options variables map.
+   * @param label The label of the option used to specify the assignment string.
+   * @param definitions The vector of assignment strings provided on the command line.
+   * @param default_definition The default assignment string.
+   */
+  inline void Strom::handleAssignmentStrings(Model::SharedPtr m, const boost::program_options::variables_map &vm, std::string label, const std::vector<std::string> &definitions, std::string default_definition)
   {
     if (vm.count(label) > 0)
     {
       bool first = true;
       for (auto s : definitions)
       {
-        bool is_default = processAssignmentString(label, s);
+        bool is_default = processAssignmentString(m, label, s);
         if (is_default && !first)
           throw XStrom(boost::format("default specification must be first %s encountered") % label);
         first = false;
@@ -196,11 +273,19 @@ namespace strom
     }
     else
     {
-      processAssignmentString(label, default_definition);
+      processAssignmentString(m, label, default_definition);
     }
   }
 
-  inline bool Strom::processAssignmentString(const std::string &which, const std::string &definition)
+  /**
+   * Process a single assignment string, which is a colon-separated list of a model component name (statefreq, rmatrix, omega, pinvar, ratevar, ncateg, or relrate), a subset name (or "default"), and a value. If the subset name is "default", the component is set for all subsets. If the subset name is not "default", the component is set for only the subset specified.
+   *
+   * @param[in] m model object
+   * @param[in] which name of component being set
+   * @param[in] definition assignment string
+   * @return true if default was found, false otherwise
+   */
+  inline bool Strom::processAssignmentString(Model::SharedPtr m, const std::string &which, const std::string &definition)
   {
     unsigned num_subsets_defined = _partition->getNumSubsets();
     std::vector<std::string> vector_of_subset_names;
@@ -219,13 +304,13 @@ namespace strom
       {
         default_found = true;
         for (unsigned i = 0; i < num_subsets_defined; i++)
-          _model->setSubsetStateFreqs(freqs, i, fixed);
+          m->setSubsetStateFreqs(freqs, i, fixed);
       }
       else
       {
         for (auto s : vector_of_subset_names)
         {
-          _model->setSubsetStateFreqs(freqs, _partition->findSubsetByName(s), fixed);
+          m->setSubsetStateFreqs(freqs, _partition->findSubsetByName(s), fixed);
         }
       }
     }
@@ -236,13 +321,13 @@ namespace strom
       {
         default_found = true;
         for (unsigned i = 0; i < num_subsets_defined; i++)
-          _model->setSubsetExchangeabilities(xchg, i, fixed);
+          m->setSubsetExchangeabilities(xchg, i, fixed);
       }
       else
       {
         for (auto s : vector_of_subset_names)
         {
-          _model->setSubsetExchangeabilities(xchg, _partition->findSubsetByName(s), fixed);
+          m->setSubsetExchangeabilities(xchg, _partition->findSubsetByName(s), fixed);
         }
       }
     }
@@ -255,13 +340,13 @@ namespace strom
       {
         default_found = true;
         for (unsigned i = 0; i < num_subsets_defined; i++)
-          _model->setSubsetOmega(omega, i, fixed);
+          m->setSubsetOmega(omega, i, fixed);
       }
       else
       {
         for (auto s : vector_of_subset_names)
         {
-          _model->setSubsetOmega(omega, _partition->findSubsetByName(s), fixed);
+          m->setSubsetOmega(omega, _partition->findSubsetByName(s), fixed);
         }
       }
     }
@@ -276,8 +361,8 @@ namespace strom
         default_found = true;
         for (unsigned i = 0; i < num_subsets_defined; i++)
         {
-          _model->setSubsetIsInvarModel(invar_model, i);
-          _model->setSubsetPinvar(p, i, fixed);
+          m->setSubsetIsInvarModel(invar_model, i);
+          m->setSubsetPinvar(p, i, fixed);
         }
       }
       else
@@ -285,8 +370,8 @@ namespace strom
         for (auto s : vector_of_subset_names)
         {
           unsigned i = _partition->findSubsetByName(s);
-          _model->setSubsetIsInvarModel(invar_model, i);
-          _model->setSubsetPinvar(p, i, fixed);
+          m->setSubsetIsInvarModel(invar_model, i);
+          m->setSubsetPinvar(p, i, fixed);
         }
       }
     }
@@ -299,13 +384,13 @@ namespace strom
       {
         default_found = true;
         for (unsigned i = 0; i < num_subsets_defined; i++)
-          _model->setSubsetRateVar(rv, i, fixed);
+          m->setSubsetRateVar(rv, i, fixed);
       }
       else
       {
         for (auto s : vector_of_subset_names)
         {
-          _model->setSubsetRateVar(rv, _partition->findSubsetByName(s), fixed);
+          m->setSubsetRateVar(rv, _partition->findSubsetByName(s), fixed);
         }
       }
     }
@@ -318,13 +403,13 @@ namespace strom
       {
         default_found = true;
         for (unsigned i = 0; i < num_subsets_defined; i++)
-          _model->setSubsetNumCateg(ncat, i);
+          m->setSubsetNumCateg(ncat, i);
       }
       else
       {
         for (auto s : vector_of_subset_names)
         {
-          _model->setSubsetNumCateg(ncat, _partition->findSubsetByName(s));
+          m->setSubsetNumCateg(ncat, _partition->findSubsetByName(s));
         }
       }
     }
@@ -334,7 +419,7 @@ namespace strom
         throw XStrom(boost::format("expecting 1 value for tree, found %d values") % vector_of_values.size());
       unsigned tree_index = vector_of_values[0];
       assert(tree_index > 0);
-      _model->setTreeIndex(tree_index - 1, fixed);
+      m->setTreeIndex(tree_index - 1, fixed);
       if (vector_of_subset_names[0] != "default")
         throw XStrom("tree must be assigned to default only");
     }
@@ -343,12 +428,33 @@ namespace strom
       assert(which == "relrate");
       if (vector_of_subset_names[0] != "default")
         throw XStrom("relrate must be assigned to default only");
-      _model->setSubsetRelRates(vector_of_values, fixed);
+      m->setSubsetRelRates(vector_of_values, fixed);
     }
 
     return default_found;
   }
 
+  /**
+   * Splits the given assignment definition into subset names and values.
+   *
+   * @param definition A string representing the assignment, containing subset names and values
+   *                    separated by a colon (e.g., "subset1,subset2:0.5,0.3").
+   * @param vector_of_subset_names A reference to a vector that will be populated with the subset names
+   *                               extracted from the definition.
+   * @param vector_of_values A reference to a vector that will be populated with the values extracted
+   *                         from the definition.
+   * @return A boolean indicating whether the parameter should be fixed (true if fixed, false otherwise).
+   *
+   * @throws XStrom If the definition does not contain exactly one colon, or if no subset names are
+   *                provided, or if subsets are defined before assigning values to them.
+   *
+   * The function parses the provided definition string, splitting it into two parts based on the colon
+   * separator: subset names and values. It further splits the subset names by commas into the
+   * `vector_of_subset_names` and the values into `vector_of_values`. It checks if the values are in
+   * square brackets, indicating that they should be fixed. If "equal" is specified as a value, a
+   * placeholder value of -1 is used. The function performs various sanity checks to ensure that
+   * subset names and assignments are consistent, throwing exceptions if any inconsistencies are found.
+   */
   inline bool Strom::splitAssignmentString(const std::string &definition, std::vector<std::string> &vector_of_subset_names, std::vector<double> &vector_of_values)
   {
     // Split subset names from definition
@@ -434,129 +540,50 @@ namespace strom
 
     try
     {
-      std::cout << "\n*** Reading and storing the data in the file " << _data_file_name << std::endl;
-      _data = Data::SharedPtr(new Data());
-      _data->setPartition(_partition);
-      _data->getDataFromFile(_data_file_name);
-
-      _model->setSubsetNumPatterns(_data->calcNumPatternsVect());
-      _model->setSubsetSizes(_partition->calcSubsetSizes());
-      _model->activate();
-
-      // Report information about data partition subsets
-      unsigned nsubsets = _data->getNumSubsets();
-      std::cout << "\nNumber of taxa: " << _data->getNumTaxa() << std::endl;
-      std::cout << "Number of partition subsets: " << nsubsets << std::endl;
-      for (unsigned subset = 0; subset < nsubsets; subset++)
-      {
-        DataType dt = _partition->getDataTypeForSubset(subset);
-        std::cout << "  Subset " << (subset + 1) << " (" << _data->getSubsetName(subset) << ")" << std::endl;
-        std::cout << "    data type: " << dt.getDataTypeAsString() << std::endl;
-        std::cout << "    sites:     " << _data->calcSeqLenInSubset(subset) << std::endl;
-        std::cout << "    patterns:  " << _data->getNumPatternsInSubset(subset) << std::endl;
-        std::cout << "    ambiguity: " << (_ambig_missing || dt.isCodon() ? "treated as missing data (faster)" : "handled appropriately (slower)") << std::endl;
-      }
-
-      std::cout << "\n*** Resources available to BeagleLib " << _likelihood->beagleLibVersion() << ":\n";
-      std::cout << _likelihood->availableResources() << std::endl;
-
-      std::cout << "\n*** Creating the likelihood calculator" << std::endl;
-      _likelihood = Likelihood::SharedPtr(new Likelihood());
-      _likelihood->setPreferGPU(_use_gpu);
-      _likelihood->setAmbiguityEqualsMissing(_ambig_missing);
-      _likelihood->setData(_data);
-      _likelihood->useUnderflowScaling(_use_underflow_scaling);
-
-      std::cout << "\n*** Model description" << std::endl;
-      std::cout << _model->describeModel() << std::endl;
-      _likelihood->setModel(_model);
-
-      _likelihood->initBeagleLib();
-
-      std::cout << "\n*** Reading and storing the first tree in the file " << _tree_file_name << std::endl;
-      _tree_summary = TreeSummary::SharedPtr(new TreeSummary());
-      _tree_summary->readTreefile(_tree_file_name, 0);
-      Tree::SharedPtr tree = _tree_summary->getTree(0);
-      std::string newick = _tree_summary->getNewick(0);
-
-      if (tree->numLeaves() != _data->getNumTaxa())
-        throw XStrom(boost::format("Number of taxa in tree (%d) does not equal the number of taxa in the data matrix (%d)") % tree->numLeaves() % _data->getNumTaxa());
-
-      std::cout << "\n*** Calculating the likelihood of the tree" << std::endl;
-      TreeManip tm(tree);
-      tm.selectAllPartials();
-      tm.selectAllTMatrices();
-      double lnL = _likelihood->calcLogLikelihood(tree);
-      std::cout << boost::str(boost::format("log likelihood = %.5f") % lnL) << std::endl;
-
-      if (_expected_log_likelihood != 0.0)
-        std::cout << boost::str(boost::format("      (expecting %.3f)") % _expected_log_likelihood) << std::endl;
+      readData();
+      readTrees();
+      showPartitionInfo();
 
       // Create a Lot object that generates (pseudo)random numbers
       _lot = Lot::SharedPtr(new Lot);
       _lot->setSeed(_random_seed);
 
+      // Create  Chain objects
+      initChains();
+
+      showBeagleInfo();
+      showMCMCInfo();
+
       // Create an output manager and open output files
       _output_manager.reset(new OutputManager);
-
-      _likelihood->useStoredData(false);
-
-      // Create a Chain object and take _num_iter steps
-      Chain chain;
-      unsigned num_free_parameters = chain.createUpdaters(_model, _lot, _likelihood);
-      if (num_free_parameters > 0)
+      _output_manager->outputConsole(boost::str(boost::format("\n%12s %12s %12s %12s") % "iteration" % "logLike" % "logPrior" % "TL"));
+      _output_manager->openTreeFile("trees.tre", _data);
+      _output_manager->openParameterFile("params.txt", _chains[0].getModel());
+      sample(0, _chains[0]);
+      // Burn-in the chains
+      startTuningChains();
+      for (unsigned iteration = 1; iteration <= _num_burnin_iter; ++iteration)
       {
-        _output_manager->outputConsole(boost::str(boost::format("\n%12s %12s %12s %12s") % "iteration" % "logLike" % "logPrior" % "TL"));
-        _output_manager->openTreeFile("trees.tre", _data);
-        _output_manager->openParameterFile("params.txt", _model);
-        chain.setTreeFromNewick(newick);
-        chain.start();
-
-        // Output column headers and first line of output showing starting state (iteration 0)
-        // std::cout << boost::str(boost::format("\n%12s %12s %12s %12s %12s %12s\n") % "iteration" % "lnLike" % "lnPrior" % "ratevar" % "accept" % "samples");
-        // GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
-        // std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % 0 % chain.getLogLikelihood() % chain.calcLogJointPrior() % ratevar_updater->getCurrentPoint() % 0 % 0);
-        sample(0, chain);
-
-        for (unsigned iteration = 1; iteration <= _num_iter; ++iteration)
-        {
-          chain.nextStep(iteration);
-          sample(iteration, chain);
-
-          // if (iteration % _sample_freq == 0)
-          // {
-          // GammaRateVarUpdater::SharedPtr ratevar_updater = std::dynamic_pointer_cast<GammaRateVarUpdater>(chain.findUpdaterByName("Gamma Rate Variance"));
-          // double log_prior = chain.calcLogJointPrior();
-          // if (log_prior == Updater::getLogZero())
-          // std::cout << boost::str(boost::format("%12d %12.5f %12s %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % "-infinity" % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
-          // else
-          // std::cout << boost::str(boost::format("%12d %12.5f %12.5f %12.5f %12.1f %12d\n") % iteration % chain.getLogLikelihood() % log_prior % ratevar_updater->getCurrentPoint() % ratevar_updater->getAcceptPct() % ratevar_updater->getNumUpdates());
-          // }
-        }
-        chain.stop();
-
-        // Close output files
-        _output_manager->closeTreeFile();
-        _output_manager->closeParameterFile();
-
-        // Summarize updater efficiency
-        _output_manager->outputConsole("\nChain summary:");
-        std::vector<std::string> names = chain.getUpdaterNames();
-        std::vector<double> lambdas = chain.getLambdas();
-        std::vector<double> accepts = chain.getAcceptPercentage();
-        std::vector<unsigned> nupdates = chain.getNumUpdates();
-        unsigned n = (unsigned)names.size();
-        _output_manager->outputConsole(boost::str(boost::format("%30s %15s %15s %15s") % "Updater" % "Tuning Param." % "Accept %" % "No. Updates"));
-        for (unsigned i = 0; i < n; ++i)
-        {
-          _output_manager->outputConsole(boost::str(boost::format("%30s %15.3f %15.1f %15d") % names[i] % lambdas[i] % accepts[i] % nupdates[i]));
-        }
+        stepChains(iteration, false);
+        swapChains();
       }
-      else
+      stopTuningChains();
+
+      // Sample the chains
+      for (unsigned iteration = 1; iteration <= _num_iter; ++iteration)
       {
-        // std::cout << "\nMCMC skipped because there are no free parameters in the model" << std::endl;
-        _output_manager->outputConsole("\nMCMC skipped because there are no free parameters in the model");
+        stepChains(iteration, true);
+        swapChains();
       }
+      showChainTuningInfo();
+      stopChains();
+
+      // Create swap summary
+      swapSummary();
+
+      // Close output files
+      _output_manager->closeTreeFile();
+      _output_manager->closeParameterFile();
     }
     catch (XStrom &x)
     {
@@ -566,7 +593,17 @@ namespace strom
     std::cout << "\nFinished!" << std::endl;
   }
 
-  // function to sample the chain
+  /**
+   * @brief Sample the MCMC chain at the given iteration
+   *
+   * Checks to see if it is time to sample the chain (i.e. if iteration % _sample_freq == 0)
+   * and if it is time to report the chain's state (i.e. if iteration % _print_freq == 0).
+   * If it is time to sample, this function writes the chain's state to the output files.
+   * If it is time to report, this function writes the chain's state to the console.
+   *
+   * @param iteration  The current iteration number
+   * @param chain  The Chain object to sample
+   */
   inline void Strom::sample(unsigned iteration, Chain &chain)
   {
     if (chain.getHeatingPower() < 1.0)
@@ -591,6 +628,448 @@ namespace strom
         _output_manager->outputTree(iteration, chain.getTreeManip());
         _output_manager->outputParameters(iteration, logLike, logPrior, TL, chain.getModel());
       }
+    }
+  }
+
+  /**
+   * @brief Reads data from the file specified by _data_file_name and stores it in the _data member.
+   *
+   * This function initializes a new Data object, sets its partition, and reads the data from the
+   * specified file. It outputs a message to the console indicating the file being read.
+   */
+
+  inline void Strom::readData()
+  {
+    std::cout << "\n*** Reading and storing the data in the file " << _data_file_name << std::endl;
+    _data = Data::SharedPtr(new Data());
+    _data->setPartition(_partition);
+    _data->getDataFromFile(_data_file_name);
+  }
+
+  /**
+   * @brief Reads and stores a specific tree from the tree file specified by _tree_file_name.
+   *
+   * This function reads the tree file and retrieves the tree corresponding to the index provided
+   * by the model's tree index. It ensures that the number of leaves in the tree matches the number
+   * of taxa in the data matrix, throwing an exception if they do not match.
+   *
+   * @throws XStrom If the number of taxa in the tree does not equal the number of taxa in the data matrix.
+   */
+  inline void Strom::readTrees()
+  {
+    assert(_data);
+    assert(_likelihoods.size() > 0 && _likelihoods[0]);
+    auto m = _likelihoods[0]->getModel();
+    unsigned tree_index = m->getTreeIndex();
+    std::cout << "\n*** Reading and storing tree number " << (tree_index + 1) << " in the file " << _tree_file_name << std::endl;
+    _tree_summary = TreeSummary::SharedPtr(new TreeSummary());
+    _tree_summary->readTreefile(_tree_file_name, 0);
+
+    Tree::SharedPtr tree = _tree_summary->getTree(tree_index);
+    if (tree->numLeaves() != _data->getNumTaxa())
+      throw XStrom(boost::format("Number of taxa in tree (%d) does not equal the number of taxa in the data matrix (%d)") % tree->numLeaves() % _data->getNumTaxa());
+  }
+
+  /**
+   * @brief Reports information about data partition subsets
+   *
+   * This function outputs information about each partition subset, including the number of taxa,
+   * number of sites, number of patterns, and data type. It also reports whether ambiguous sites are
+   * treated as missing data (faster) or handled appropriately (slower).
+   */
+  inline void Strom::showPartitionInfo()
+  {
+    // Report information about data partition subsets
+    unsigned nsubsets = _data->getNumSubsets();
+    std::cout << "\nNumber of taxa: " << _data->getNumTaxa() << std::endl;
+    std::cout << "Number of partition subsets: " << nsubsets << std::endl;
+    for (unsigned subset = 0; subset < nsubsets; subset++)
+    {
+      DataType dt = _partition->getDataTypeForSubset(subset);
+      std::cout << "  Subset " << (subset + 1) << " (" << _data->getSubsetName(subset) << ")" << std::endl;
+      std::cout << "    data type: " << dt.getDataTypeAsString() << std::endl;
+      std::cout << "    sites:     " << _data->calcSeqLenInSubset(subset) << std::endl;
+      std::cout << "    patterns:  " << _data->getNumPatternsInSubset(subset) << std::endl;
+      std::cout << "    ambiguity: " << (_ambig_missing || dt.isCodon() ? "treated as missing data (faster)" : "handled appropriately (slower)") << std::endl;
+    }
+  }
+
+  /**
+   * @brief Reports information about available and used BeagleLib resources
+   *
+   * This function outputs the preferred resource (GPU or CPU), available resources, and resources used.
+   */
+  inline void Strom::showBeagleInfo()
+  {
+    assert(_likelihoods.size() > 0 && _likelihoods[0]);
+    std::cout << "\n*** BeagleLib " << _likelihoods[0]->beagleLibVersion() << " resources:\n";
+    std::cout << "Preferred resource: " << (_use_gpu ? "GPU" : "CPU") << std::endl;
+    std::cout << "Available resources:" << std::endl;
+    std::cout << _likelihoods[0]->availableResources() << std::endl;
+    std::cout << "Resources used:" << std::endl;
+    std::cout << _likelihoods[0]->usedResources() << std::endl;
+  }
+
+  /**
+   * @brief Calculates the heating powers for all chains
+   *
+   * The heating power is calculated as 1.0 / (1.0 + _heating_lambda * chain_index),
+   * where _heating_lambda is the heating factor and chain_index is the index of the chain.
+   * The heating power is used to calculate the temperature for each chain and is used
+   * to calculate the acceptance probability of a move.
+   */
+  inline void Strom::calcHeatingPowers()
+  {
+    // Specify chain heating power (e.g. _heating_lambda = 0.2)
+    // chain_index  power
+    //      0       1.000 = 1/(1 + 0.2*0)
+    //      1       0.833 = 1/(1 + 0.2*1)
+    //      2       0.714 = 1/(1 + 0.2*2)
+    //      3       0.625 = 1/(1 + 0.2*3)
+    unsigned i = 0;
+    for (auto &h : _heating_powers)
+    {
+      h = 1.0 / (1.0 + _heating_lambda * i++);
+    }
+  }
+
+  /**
+   * @brief Initializes all chains.
+   *
+   * This function creates all chains, sets up the swap matrix, and creates the heating power vector.
+   * It then iterates over all chains and completes the setup of the models, finishes setting up
+   * the likelihoods, builds a list of updaters (one for each free parameter in the model), and
+   * sets up the chain with its starting tree.
+   *
+   * @throws XStrom If there are no free parameters in the model.
+   */
+  inline void Strom::initChains()
+  {
+    // Create _num_chains chains
+    _chains.resize(_num_chains);
+
+    // Create _num_chains by _num_chains swap matrix
+    _swaps.assign(_num_chains * _num_chains, 0);
+
+    // Create heating power vector
+    _heating_powers.assign(_num_chains, 1.0);
+    calcHeatingPowers();
+
+    // Initialize chains
+    for (unsigned chain_index = 0; chain_index < _num_chains; ++chain_index)
+    {
+      auto &c = _chains[chain_index];
+      auto likelihood = _likelihoods[chain_index];
+      auto m = likelihood->getModel();
+
+      // Finish setting up models
+      m->setSubsetNumPatterns(_data->calcNumPatternsVect());
+      m->setSubsetSizes(_partition->calcSubsetSizes());
+      m->activate();
+      if (chain_index == 0)
+        std::cout << "\n"
+                  << m->describeModel() << std::endl;
+      else
+        m->describeModel();
+
+      // Finish setting up likelihoods
+      likelihood->setData(_data);
+      likelihood->useUnderflowScaling(_use_underflow_scaling);
+      likelihood->initBeagleLib();
+      likelihood->useStoredData(_using_stored_data);
+
+      // Build list of updaters, one for each free parameter in the model
+      unsigned num_free_parameters = c.createUpdaters(m, _lot, likelihood);
+      if (num_free_parameters == 0)
+        throw XStrom("MCMC skipped because there are no free parameters in the model");
+
+      // Tell the chain that it should adapt its updators (at least initially)
+      c.startTuning();
+
+      // Set heating power to precalculated value
+      c.setChainIndex(chain_index);
+      c.setHeatingPower(_heating_powers[chain_index]);
+
+      // Give the chain a starting tree
+      std::string newick = _tree_summary->getNewick(m->getTreeIndex());
+      c.setTreeFromNewick(newick);
+
+      // Print headers in output files and make sure each updator has its starting value
+      c.start();
+    }
+  }
+
+  /**
+   * @brief Reports information about the MCMC analysis
+   *
+   * This function outputs information about the MCMC analysis, including the number of chains,
+   * burn-in length, number of iterations, sampling frequency, and sample size. It also reports
+   * the starting log likelihood of the first chain if using stored data, and the expected log
+   * likelihood if it was specified.
+   */
+  inline void Strom::showMCMCInfo()
+  {
+    assert(_likelihoods.size() > 0 && _likelihoods[0]);
+    std::cout << "\n*** MCMC analysis beginning..." << std::endl;
+    if (_likelihoods[0]->usingStoredData())
+    {
+      unsigned tree_index = _likelihoods[0]->getModel()->getTreeIndex();
+      Tree::SharedPtr tree = _tree_summary->getTree(tree_index);
+      double lnL = _chains[0].getLogLikelihood();
+      std::cout << boost::str(boost::format("Starting log likelihood = %.5f") % lnL) << std::endl;
+    }
+    else
+      std::cout << "Exploring prior" << std::endl;
+
+    if (_expected_log_likelihood != 0.0)
+      std::cout << boost::str(boost::format("      (expecting %.3f)") % _expected_log_likelihood) << std::endl;
+
+    std::cout << "Number of chains is " << _num_chains << std::endl;
+    std::cout << "Burning in for " << _num_burnin_iter << " iterations." << std::endl;
+    std::cout << "Running after burn-in for " << _num_iter << " iterations." << std::endl;
+    std::cout << "Sampling every " << _sample_freq << " iterations." << std::endl;
+    std::cout << "Sample size is " << (int)(_num_iter / _sample_freq) << std::endl;
+  }
+
+  /**
+   * @brief Starts the tuning process for all MCMC chains.
+   *
+   * This function resets the swap matrix and then iterates over all chains,
+   * invoking the startTuning method for each chain. This allows each chain
+   * to begin adapting its parameters for improved convergence during the
+   * burn-in phase of the MCMC process.
+   */
+
+  inline void Strom::startTuningChains()
+  {
+    _swaps.assign(_num_chains * _num_chains, 0);
+    for (auto &c : _chains)
+    {
+      c.startTuning();
+    }
+  }
+
+  /**
+   * @brief Stops the tuning process for all MCMC chains.
+   *
+   * This function resets the swap matrix and then iterates over all chains,
+   * invoking the stopTuning method for each chain. This terminates the
+   * adaptation process for each chain and prevents further changes to the
+   * proposal distributions used for MCMC.
+   */
+  inline void Strom::stopTuningChains()
+  {
+    _swaps.assign(_num_chains * _num_chains, 0);
+    for (auto &c : _chains)
+    {
+      c.stopTuning();
+    }
+  }
+
+  /**
+   * @brief Advances each MCMC chain by one iteration.
+   *
+   * This function iterates over all chains, calling nextStep for each one.
+   * If the sampling flag is true, the sample function is called for each chain,
+   * adding the current state of the chain to the sample set.
+   *
+   * @param iteration The iteration number.
+   * @param sampling   A boolean indicating whether to sample the chains.
+   */
+  inline void Strom::stepChains(unsigned iteration, bool sampling)
+  {
+    for (auto &c : _chains)
+    {
+      c.nextStep(iteration);
+      if (sampling)
+        sample(iteration, c);
+    }
+  }
+
+  /**
+   * @brief Swaps states of two randomly chosen chains
+   *
+   * This function selects two chains at random and attempts to swap their states.
+   * The swap is accepted with probability
+   *    R = Ri * Rj = (Pi(j) / Pi(i)) * (Pj(i) / Pj(j))
+   * where Pi and Pj are the likelihood functions of chains i and j, respectively,
+   * and Ri and Rj are the Metropolis-Hastings ratios of the two chains.
+   */
+  inline void Strom::swapChains()
+  {
+    if (_num_chains == 1)
+      return;
+
+    // Select two chains at random to swap
+    // If _num_chains = 3...
+    //  i  j  = (i + 1 + randint(0,1)) % _num_chains
+    // ---------------------------------------------
+    //  0  1  = (0 + 1 +      0      ) %     3
+    //     2  = (0 + 1 +      1      ) %     3
+    // ---------------------------------------------
+    //  1  2  = (1 + 1 +      0      ) %     3
+    //     0  = (1 + 1 +      1      ) %     3
+    // ---------------------------------------------
+    //  2  0  = (2 + 1 +      0      ) %     3
+    //     1  = (2 + 1 +      1      ) %     3
+    // ---------------------------------------------
+    unsigned i = (unsigned)_lot->randint(0, _num_chains - 1);
+    unsigned j = i + 1 + (unsigned)_lot->randint(0, _num_chains - 2);
+    j %= _num_chains;
+
+    assert(i != j && i >= 0 && i < _num_chains && j >= 0 && j < _num_chains);
+
+    // Determine upper and lower triangle cells in _swaps vector
+    unsigned smaller = _num_chains;
+    unsigned larger = _num_chains;
+    double index_i = _chains[i].getChainIndex();
+    double index_j = _chains[j].getChainIndex();
+    if (index_i < index_j)
+    {
+      smaller = index_i;
+      larger = index_j;
+    }
+    else
+    {
+      smaller = index_j;
+      larger = index_i;
+    }
+    unsigned upper = smaller * _num_chains + larger;
+    unsigned lower = larger * _num_chains + smaller;
+    _swaps[upper]++;
+
+    // Propose swap of chains i and j
+    // Proposed state swap will be successful if a uniform random deviate is less than R, where
+    //    R = Ri * Rj = (Pi(j) / Pi(i)) * (Pj(i) / Pj(j))
+    // Chain i: power = a, kernel = pi
+    // Chain j: power = b, kernel = pj
+    //      pj^a         pi^b
+    // Ri = ----    Rj = ----
+    //      pi^a         pj^b
+    // log R = (a-b) [log(pj) - log(pi)]
+
+    double heat_i = _chains[i].getHeatingPower();
+    double log_kernel_i = _chains[i].calcLogLikelihood() + _chains[i].calcLogJointPrior();
+
+    double heat_j = _chains[j].getHeatingPower();
+    double log_kernel_j = _chains[j].calcLogLikelihood() + _chains[j].calcLogJointPrior();
+
+    double logR = (heat_i - heat_j) * (log_kernel_j - log_kernel_i);
+
+    double logu = _lot->logUniform();
+    if (logu < logR)
+    {
+      // accept swap
+      _swaps[lower]++;
+      _chains[j].setHeatingPower(heat_i);
+      _chains[i].setHeatingPower(heat_j);
+      _chains[j].setChainIndex(index_i);
+      _chains[i].setChainIndex(index_j);
+      std::vector<double> lambdas_i = _chains[i].getLambdas();
+      std::vector<double> lambdas_j = _chains[j].getLambdas();
+      _chains[i].setLambdas(lambdas_j);
+      _chains[j].setLambdas(lambdas_i);
+    }
+  }
+
+  /**
+   * @brief Displays tuning information for each MCMC chain.
+   *
+   * This function iterates over all MCMC chains and outputs detailed tuning
+   * information for each chain to the console. The information includes the
+   * chain index, heating power, and a list of updaters with their corresponding
+   * tuning parameters, acceptance percentages, and the number of updates.
+   * The output is formatted for readability, allowing users to assess the
+   * performance and tuning status of each chain in the MCMC analysis.
+   */
+
+  inline void Strom::showChainTuningInfo() const
+  {
+    for (unsigned idx = 0; idx < _num_chains; ++idx)
+    {
+      for (auto &c : _chains)
+      {
+        if (c.getChainIndex() == idx)
+        {
+          _output_manager->outputConsole(boost::str(boost::format("\nChain %d (power %.5f)") % idx % c.getHeatingPower()));
+          std::vector<std::string> names = c.getUpdaterNames();
+          std::vector<double> lambdas = c.getLambdas();
+          std::vector<double> accepts = c.getAcceptPercentages();
+          std::vector<unsigned> nupdates = c.getNumUpdates();
+          unsigned n = (unsigned)names.size();
+          _output_manager->outputConsole(boost::str(boost::format("%35s %15s %15s %15s") % "Updater" % "Tuning Param." % "Accept %" % "No. Updates"));
+          for (unsigned i = 0; i < n; ++i)
+          {
+            _output_manager->outputConsole(boost::str(boost::format("%35s %15.3f %15.1f %15d") % names[i] % lambdas[i] % accepts[i] % nupdates[i]));
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * @brief Stops all MCMC chains.
+   *
+   * This function iterates over all MCMC chains and invokes the stop method for each chain.
+   * This terminates the MCMC process and prevents further updates to the chain.
+   */
+  inline void Strom::stopChains()
+  {
+    for (auto &c : _chains)
+    {
+      c.stop();
+    }
+  }
+
+  /**
+   * @brief Displays swap summary for MCMC chains.
+   *
+   * This function outputs a table showing the number of attempted swaps and
+   * successful swaps between each pair of MCMC chains. The table is symmetric,
+   * with the upper triangle showing the number of attempted swaps and the lower
+   * triangle showing the number of successful swaps. The table is formatted for
+   * readability, with each row representing a different chain. The column
+   * headers show the chain indices, and the rows are labeled with the chain
+   * index. The table is only displayed if there are more than one chain.
+   */
+  inline void Strom::swapSummary() const
+  {
+    if (_num_chains > 1)
+    {
+      unsigned i, j;
+      std::cout << "\nSwap summary (upper triangle = no. attempted swaps; lower triangle = no. successful swaps):" << std::endl;
+
+      // column headers
+      std::cout << boost::str(boost::format("%12s") % " ");
+      for (i = 0; i < _num_chains; ++i)
+        std::cout << boost::str(boost::format(" %12d") % i);
+      std::cout << std::endl;
+
+      // top line
+      std::cout << boost::str(boost::format("%12s") % "------------");
+      for (i = 0; i < _num_chains; ++i)
+        std::cout << boost::str(boost::format("-%12s") % "------------");
+      std::cout << std::endl;
+
+      // table proper
+      for (i = 0; i < _num_chains; ++i)
+      {
+        std::cout << boost::str(boost::format("%12d") % i);
+        for (j = 0; j < _num_chains; ++j)
+        {
+          if (i == j)
+            std::cout << boost::str(boost::format(" %12s") % "---");
+          else
+            std::cout << boost::str(boost::format(" %12.5f") % _swaps[i * _num_chains + j]);
+        }
+        std::cout << std::endl;
+      }
+
+      // bottom line
+      std::cout << boost::str(boost::format("%12s") % "------------");
+      for (i = 0; i < _num_chains; ++i)
+        std::cout << boost::str(boost::format("-%12s") % "------------");
+      std::cout << std::endl;
     }
   }
 }

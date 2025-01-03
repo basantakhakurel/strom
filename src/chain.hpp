@@ -53,7 +53,7 @@ namespace strom
 
     Updater::SharedPtr findUpdaterByName(std::string name);
     std::vector<std::string> getUpdaterNames() const;
-    std::vector<double> getAcceptPercentage() const;
+    std::vector<double> getAcceptPercentages() const;
     std::vector<unsigned> getNumUpdates() const;
     std::vector<double> getLambdas() const;
     void setLambdas(std::vector<double> &v);
@@ -342,7 +342,7 @@ namespace strom
   }
 
   // function to provide the performance of each updater
-  inline std::vector<double> Chain::getAcceptPercentage() const
+  inline std::vector<double> Chain::getAcceptPercentages() const
   {
     std::vector<double> v;
     for (auto u : _updaters)
