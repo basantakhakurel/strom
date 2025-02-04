@@ -24,6 +24,8 @@ namespace strom
     virtual void revert();
     virtual void proposeNewState();
 
+    void starTreeMove();
+
     virtual void reset();
 
     double _orig_edgelen_top;
@@ -32,6 +34,7 @@ namespace strom
 
     unsigned _case;
     bool _topology_changed;
+    bool _star_tree_move;
     Node *_x;
     Node *_y;
     Node *_a;
@@ -102,9 +105,30 @@ namespace strom
     //        |
     //        |
     //        b
+    // For the star tree, there is only one internal node. In this case, only choose
+    // two edges and modify them (no change in tree topology is possible)
+    //
+    //           a
+    //      \ | /
+    //       \|/
+    //        x
+    //        |
+    //        |
+    //        b
+    //
 
     _x = _tree_manipulator->randomInternalEdge(_lot);
     _orig_edgelen_middle = _x->getEdgeLength();
+
+    // The only child of the root node will be chosen only if the tree equals the star tree
+    // in which case we can to perform a starTreeMove rather than Larget-Simon move
+    _star_tree_move = false;
+    if (_x->getParent() && !_x->getParent()->getParent())
+    {
+      _star_tree_move = true;
+      starTreeMove();
+      return;
+    }
 
     _y = _x->getParent();
 
@@ -240,6 +264,38 @@ namespace strom
     }
   }
 
+  inline void TreeUpdater::starTreeMove()
+  {
+    // choose focal 2-edfe segment to modify
+    _orig_edgelen_middle = 0.0;
+
+    // choose the first edge
+    _a = _tree_manipulator->randomChild(_lot, _x, 0, false);
+    _orig_edgelen_top = _a->getEdgeLength();
+
+    // choose the second edge
+    _b = _tree_manipulator->randomChild(_lot, _x, _a, true);
+    if (!_b)
+      _b = _x;
+    _orig_edgelen_bottom = _b->getEdgeLength();
+
+    // Note that _a must be a child of _x, but _b may either be a different child of _x or _x itself
+    double u = _lot->uniform();
+    double new_edgelen_top = u * (_orig_edgelen_top + _orig_edgelen_bottom);
+    double new_edgelen_bottom = (1.0 - u) * (_orig_edgelen_top + _orig_edgelen_bottom);
+
+    // Hastings ratio and Jacobian are both 1 under Gamma-dirichlet parameterization
+    _log_hastings_ratio = 0.0;
+    _log_jacobian = 0.0;
+
+    // Change edge lengths and flag partials and transition matrices for recalculation
+    _tree_manipulator->selectPartialsHereToRoot(_x);
+    _a->setEdgeLength(new_edgelen_top);
+    _a->selectTMatrix();
+    _b->setEdgeLength(new_edgelen_bottom);
+    _b->selectTMatrix();
+  }
+
   /**
    * @brief Revert the tree to its state before the last proposal.
    *
@@ -251,16 +307,24 @@ namespace strom
    */
   inline void TreeUpdater::revert()
   {
-    assert(_case > 0 && _case < 9);
-    if (_case == 2 || _case == 6)
-      _tree_manipulator->LargetSimonSwap(_a, _b);
-    else if (_case == 1 || _case == 5)
-      _tree_manipulator->LargetSimonSwap(_b, _a);
-    _a->setEdgeLength(_orig_edgelen_top);
-    _x->setEdgeLength(_orig_edgelen_middle);
-    if (_case == 1 || _case == 3 || _case == 5 || _case == 7)
-      _b->setEdgeLength(_orig_edgelen_bottom); // not actually necessary for case 3
+    if (_star_tree_move)
+    {
+      _a->setEdgeLength(_orig_edgelen_top);
+      _b->setEdgeLength(_orig_edgelen_bottom);
+    }
     else
-      _y->setEdgeLength(_orig_edgelen_bottom); // not actually necessary for case 4
+    {
+      assert(_case > 0 && _case < 9);
+      if (_case == 2 || _case == 6)
+        _tree_manipulator->LargetSimonSwap(_a, _b);
+      else if (_case == 1 || _case == 5)
+        _tree_manipulator->LargetSimonSwap(_b, _a);
+      _a->setEdgeLength(_orig_edgelen_top);
+      _x->setEdgeLength(_orig_edgelen_middle);
+      if (_case == 1 || _case == 3 || _case == 5 || _case == 7)
+        _b->setEdgeLength(_orig_edgelen_bottom); // not actually necessary for case 3
+      else
+        _y->setEdgeLength(_orig_edgelen_bottom); // not actually necessary for case 4
+    }
   }
 }
