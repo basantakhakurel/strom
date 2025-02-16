@@ -57,6 +57,8 @@ namespace strom
     double getEdgeLength() { return _edge_length; }
     void setEdgeLength(double v);
 
+    void clearPointers() { _left_child = _right_sib = _parent = 0; }
+
     static const double _smallest_edge_length;
 
     typedef std::vector<Node> Vector;
@@ -98,9 +100,10 @@ namespace strom
   inline void Node::clear()
   {
     _flags = 0;
-    _left_child = 0;
-    _right_sib = 0;
-    _parent = 0;
+    clearPointers();
+    // _left_child = 0;
+    // _right_sib = 0;
+    // _parent = 0;
     _number = -1;
     _name = "";
     _edge_length = _smallest_edge_length;

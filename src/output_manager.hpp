@@ -28,7 +28,7 @@ namespace strom
 
     void outputConsole(std::string s);
     void outputTree(unsigned iter, TreeManip::SharedPtr tm);
-    void outputParameters(unsigned iter, double lnL, double lnP, double TL, Model::SharedPtr model);
+    void outputParameters(unsigned iter, double lnL, double lnP, double TL, unsigned m, Model::SharedPtr model);
 
   private:
     TreeManip::SharedPtr _tree_manip;
@@ -84,7 +84,7 @@ namespace strom
     _parameterfile.open(_param_file_name.c_str());
     if (!_parameterfile.is_open())
       throw XStrom(boost::str(boost::format("Could not open parameter file \"%s\"") % _param_file_name));
-    _parameterfile << boost::str(boost::format("%s\t%s\t%s\t%s\t%s") % "iter" % "lnL" % "lnPr" % "TL" % model->paramNamesAsString("\t")) << std::endl;
+    _parameterfile << boost::str(boost::format("%s\t%s\t%s\t%s\t%s\t%s") % "iter" % "lnL" % "lnPr" % "TL" % "m" % model->paramNamesAsString("\t")) << std::endl;
   }
 
   inline void OutputManager::closeParameterFile()
@@ -108,10 +108,10 @@ namespace strom
   }
 
   // function to output parameter values to the parameter file
-  inline void OutputManager::outputParameters(unsigned iter, double lnL, double lnP, double TL, Model::SharedPtr model)
+  inline void OutputManager::outputParameters(unsigned iter, double lnL, double lnP, double TL, unsigned m, Model::SharedPtr model)
   {
     assert(model);
     assert(_parameterfile.is_open());
-    _parameterfile << boost::str(boost::format("%d\t%.5f\t%.5f\t%.5f\t%s") % iter % lnL % lnP % TL % model->paramValuesAsString("\t")) << std::endl;
+    _parameterfile << boost::str(boost::format("%d\t%.5f\t%.5f\t%.5f\t%d\t%s") % iter % lnL % lnP % TL % m % model->paramValuesAsString("\t")) << std::endl;
   }
 }

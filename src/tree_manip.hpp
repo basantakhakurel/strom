@@ -26,7 +26,9 @@ namespace strom
     Tree::SharedPtr getTree();
 
     double calcTreeLength() const;
+    unsigned calcResolutionClass() const;
     unsigned countEdges() const;
+    unsigned countInternals() const;
     void scaleAllEdgeLengths(double scaler);
 
     void createTestTree();
@@ -39,6 +41,20 @@ namespace strom
     Node *randomInternalEdge(Lot::SharedPtr lot);
     Node *randomChild(Lot::SharedPtr lot, Node *x, Node *avoid, bool parent_included);
     void LargetSimonSwap(Node *a, Node *b);
+
+    bool isPolytomy(Node *nd) const;
+    void nniNodeSwap(Node *a, Node *b);
+    unsigned countChildren(Node *nd) const;
+    Node *findLeftSib(Node *nd);
+    Node *findRightmostChild(Node *nd);
+    Node *findLastPreorderInClade(Node *start);
+    void insertSubtreeOnLeft(Node *s, Node *u);
+    void insertSubtreeOnRight(Node *s, Node *u);
+    void detachSubtree(Node *s);
+    void rectifyNumInternals(int incr);
+    void refreshNavigationPointers();
+    Node *getUnusedNode(Node *sought = 0);
+    void putUnusedNode(Node *nd);
 
     void selectAll();
     void deselectAll();
@@ -495,6 +511,13 @@ namespace strom
     } // end while loop
   }
 
+  /**
+   * Populate the _levelorder vector of the tree with its nodes in levelorder (i.e. breadth-first) sequence.
+   *
+   * This function is called whenever the tree is modified and the levelorder sequence needs to be updated.
+   *
+   * The root node is not included in the levelorder sequence.
+   */
   inline void TreeManip::refreshLevelorder()
   {
     if (!_tree->_root)
@@ -539,6 +562,15 @@ namespace strom
     } // end while loop
   }
 
+  /**
+   * @brief Renumber the internal nodes of the tree in postorder sequence.
+   *
+   * @details
+   * This function should be called after any operation that may have modified
+   * the set of internal nodes in the tree. It will renumber the internal nodes
+   * in postorder sequence, and also update the \c _ninternals data member of
+   * the tree.
+   */
   inline void TreeManip::renumberInternals()
   {
     assert(_tree->_preorder.size() > 0);
@@ -561,16 +593,30 @@ namespace strom
 
     _tree->_ninternals = curr_internal - _tree->_nleaves;
 
-    // If the tree has polytomies, then there are Node objects stored in
-    // the _tree->_nodes vector that have not yet been numbered. These can
-    // be identified because their _number is currently equal to -1.
-    for (auto &nd : _tree->_nodes)
-    {
-      if (nd._number == -1)
-        nd._number = curr_internal++;
+    _tree->_unused_nodes.clear();
+    for (; curr_internal < (unsigned)_tree->_nodes.size(); curr_internal++) {
+      Node *curr = &_tree->_nodes[curr_internal];
+      putUnusedNode(curr);
+      assert(curr->_number == -1);
+      curr->_number = curr_internal;
     }
   }
 
+  /**
+   * @brief Return true if the given node can have a sibling.
+   *
+   * A node can have a sibling if it is not the root node, and if it is
+   * not the rightmost child of its parent (unless we are allowing polytomies).
+   * If we are not allowing polytomies, then the root node can only have 2 or 3
+   * children, and the second child of the root node can only have one sibling.
+   *
+   * @param nd The node to check.
+   * @param rooted Whether the tree is rooted or unrooted.
+   * @param allow_polytomies Whether to allow polytomies (i.e. internal nodes
+   * with more than 2 children).
+   *
+   * @return True if the node can have a sibling, false otherwise.
+   */
   inline bool TreeManip::canHaveSibling(Node *nd, bool rooted, bool allow_polytomies)
   {
     assert(nd);
@@ -644,6 +690,223 @@ namespace strom
   }
 
   /**
+   * @brief Finds the sibling of a node to its left.
+   *
+   * This function assumes that `nd` is not the leftmost child of its parent.
+   *
+   * @param nd the node whose left sibling is to be found
+   * @return the node to the left of `nd`
+   */
+  inline Node *TreeManip::findLeftSib(Node *nd)
+  {
+    assert(nd);
+    assert(nd->_parent);
+    Node *child = nd->_parent->_left_child;
+    while (child && child->_right_sib != nd)
+      child = child->_right_sib;
+    return child;
+  }
+
+
+  /**
+   * @brief Finds the rightmost child of a node.
+   *
+   * This function assumes that `nd` is not null. It iterates over the children of
+   * `nd` until it reaches the rightmost child, which is returned.
+   *
+   * @param nd the node whose rightmost child is to be found
+   * @return the rightmost child of `nd`
+   */
+    inline Node * TreeManip::findRightmostChild(Node * nd) {
+        assert(nd);
+        Node * child = nd->getLeftChild();
+        while (child->getRightSib())
+            child = child->getRightSib();
+        return child;
+    }
+
+
+/**
+ * @brief Finds the last node in the preorder traversal within a clade.
+ *
+ * This function starts from the given node and navigates to the rightmost
+ * child repeatedly until no further right child exists. The node reached
+ * at this point is the last node in the preorder traversal of the clade
+ * rooted at the starting node.
+ *
+ * @param start The starting node of the clade.
+ * @return The last node in the preorder traversal of the clade.
+ */
+inline Node * TreeManip::findLastPreorderInClade(Node * start) {
+        assert(start);
+        Node * curr = start;
+        Node * rchild = findRightmostChild(curr);
+        while (rchild) {
+            curr = rchild;
+            rchild = findRightmostChild(curr);
+        }
+        return curr;
+    }
+
+/**
+ * @brief Inserts a subtree as the leftmost child of a given node.
+ *
+ * This function inserts the subtree rooted at node `s` as the leftmost child
+ * of node `u`. It updates the sibling and parent pointers to ensure that `s`
+ * becomes the left child of `u`, with any existing left child of `u` becoming
+ * the right sibling of `s`.
+ *
+ * @param s Pointer to the root node of the subtree to be inserted.
+ * @param u Pointer to the node under which the subtree `s` will be inserted
+ * as the leftmost child.
+ */
+  inline void TreeManip::insertSubtreeOnLeft(Node * s, Node * u) {
+        assert(u);
+        assert(s);
+        s->_right_sib  = u->_left_child;
+        s->_parent     = u;
+        u->_left_child = s;
+  }
+
+
+  /**
+   * @brief Inserts a subtree as the rightmost child of a given node.
+   *
+   * This function inserts the subtree rooted at node `s` as the rightmost child
+   * of node `u`. It updates the sibling and parent pointers to ensure that `s`
+   * becomes the right child of `u`, with any existing right child of `u` becoming
+   * the left sibling of `s`.
+   *
+   * @param s Pointer to the root node of the subtree to be inserted.
+   * @param u Pointer to the node under which the subtree `s` will be inserted
+   * as the rightmost child.
+   */
+  inline void TreeManip::insertSubtreeOnRight(Node * s, Node * u) {
+        assert(u);
+        assert(s);
+
+        s->_right_sib = 0;
+        s->_parent    = u;
+        if (u->_left_child) {
+            Node * u_rchild = findRightmostChild(u);
+            u_rchild->_right_sib = s;
+        }
+        else
+            u->_left_child = s;
+    }
+
+
+/**
+ * @brief Detaches a subtree rooted at a given node from its parent.
+ *
+ * This function removes the subtree rooted at node `s` from its parent,
+ * effectively detaching it from the tree. It updates the sibling pointers
+ * to maintain the structure of the remaining tree. If `s` is the leftmost
+ * child, the parent's left child pointer is updated. Otherwise, the left
+ * sibling's right sibling pointer is updated to skip over `s`.
+ *
+ * @param s Pointer to the root node of the subtree to be detached.
+ */
+inline void TreeManip::detachSubtree(Node * s) {
+        assert(s);
+        assert(s->_parent);
+
+        // Save pointers to relevant nodes
+        Node * s_leftsib  = findLeftSib(s);
+        Node * s_rightsib = s->_right_sib;
+        Node * s_parent   = s->_parent;
+
+        // Completely detach s and seal up the wound
+        s->_parent = 0;
+        s->_right_sib = 0;
+        if (s_leftsib)
+            s_leftsib->_right_sib = s_rightsib;
+        else
+            s_parent->_left_child = s_rightsib;
+    }
+
+
+  /**
+   * @brief Adjusts the number of internal nodes stored in the tree.
+   *
+   * This function increments the number of internal nodes stored in the tree
+
+   * by the given value. It is used internally by the TreeManip class to
+   * maintain the tree's internal state.
+   *
+   * @param incr The increment in the number of internal nodes.
+   */
+inline void TreeManip::rectifyNumInternals(int incr) {
+        assert(_tree->_nodes.size() == _tree->_unused_nodes.size() + _tree->_nleaves + _tree->_ninternals + incr);
+        _tree->_ninternals += incr;
+    }
+
+
+  /**
+
+   * \brief Refreshes the preorder and levelorder sequences for the tree.
+   *
+   * This function is used internally by the TreeManip class to maintain the
+   * tree's internal state. It is called whenever the tree is modified and the
+   * navigation pointers need to be updated.
+   */
+  inline void TreeManip::refreshNavigationPointers() {
+      refreshPreorder();
+      refreshLevelorder();
+  }
+
+
+/**
+ * @brief Retrieve an unused node from the tree.
+ *
+ * This function fetches an unused node from the tree's pool of unused nodes.
+ * If a specific node is sought, it is removed from the unused nodes if found.
+ * Otherwise, the last node in the unused nodes list is returned.
+ * The node's pointers are cleared before returning.
+ *
+ * @param sought Pointer to the specific node to retrieve, or null to retrieve any node.
+ * @return Pointer to the unused node.
+ * @throws AssertionError if the pool of unused nodes is empty or the sought node is not found.
+ */
+  inline Node * TreeManip::getUnusedNode(Node * sought) {
+        assert(!_tree->_unused_nodes.empty());
+        Node * nd = 0;
+        if (sought) {
+            unsigned i = 0;
+            for (Node * und : _tree->_unused_nodes) {
+                if (und == sought) {
+                    nd = und;
+                    _tree->_unused_nodes.erase(_tree->_unused_nodes.begin()+i);
+                    break;
+                }
+                ++i;
+            }
+            assert(nd);
+        }
+        else {
+            nd = _tree->_unused_nodes.back();
+            _tree->_unused_nodes.pop_back();
+        }
+        nd->clearPointers();
+        return nd;
+    }
+
+  /**
+   * @brief Return a node to the tree's pool of unused nodes.
+   *
+   * This function is used internally by the TreeManip class to maintain the
+   * tree's internal state. It is called whenever a node is no longer needed, and
+   * is used to return the node to the tree's pool of unused nodes.
+   *
+   * @param nd Pointer to the node to return to the unused nodes pool.
+   * @throws AssertionError if the node is null.
+   */
+    inline void TreeManip::putUnusedNode(Node * nd) {
+        nd->clearPointers();
+        _tree->_unused_nodes.push_back(nd);
+    }
+
+  /**
    * \brief Choose a node at random from the internal nodes of the tree.
    *
    * The algorithm used here to choose a node at random is a bit tricky, so it
@@ -691,6 +954,10 @@ namespace strom
     // vector of integers solely to illustrate the algorithm below
 
     int num_internal_edges = (unsigned)_tree->_preorder.size() - _tree->_nleaves - (_tree->_is_rooted ? 1 : 0);
+    if (num_internal_edges == 0) {
+      // Star tree: return hub node, which is the first node in the preorder sequence
+      return _tree->_preorder[0];
+    }
 
     // Add one to skip first node in _preorder vector, which is an internal node whose edge
     // is either a terminal edge (if tree is unrooted) or invalid (if tree is rooted)
@@ -964,6 +1231,78 @@ namespace strom
 
     refreshPreorder();
     refreshLevelorder();
+  }
+
+/**
+ * \brief Determines if a given node is a polytomy.
+ *
+ * This function checks if the specified node has more than two children,
+ * indicating that it is a polytomy. It assumes that the node is an internal
+ * node and will assert if the node has no left child. A node is considered
+ * a polytomy if its left child has a right sibling and that sibling also
+ * has a right sibling.
+ *
+ * \param nd The node to check for polytomy.
+ * \return True if the node is a polytomy, false otherwise.
+ */
+  inline bool TreeManip::isPolytomy(Node *nd) const {
+    Node * lchild = nd->_left_child;
+    assert(lchild);   // should only call this function for internal nodes
+
+    Node * rchild = lchild->_right_sib;
+    if (rchild && rchild->_right_sib)
+      return true;
+    return false;
+  }
+
+/**
+ * \brief Calculate the resolution class of the tree.
+ *
+ * This function returns the resolution class of the tree,
+ * which is defined as the number of internal nodes in the tree.
+ *
+ * \return The number of internal nodes in the tree.
+ */
+  inline unsigned TreeManip::calcResolutionClass() const {
+    return _tree->_ninternals;
+  }
+
+/**
+ * \brief Returns the number of children of the specified node.
+ *
+ * This function traverses the right siblings of the leftmost child of the
+ * specified node and returns the number of children encountered.
+ *
+ * \param nd The node whose children are counted.
+ * \return The number of children of the specified node.
+ */
+  inline unsigned TreeManip::countChildren(Node * nd) const {
+        assert(nd);
+        unsigned nchildren = 0;
+        Node * child = nd->getLeftChild();
+        while (child) {
+            nchildren++;
+            child = child->getRightSib();
+        }
+        return nchildren;
+    }
+
+  /**
+   * \brief Returns the number of internal nodes in the tree.
+   *
+   * This function counts the number of internal nodes in the tree by
+   * traversing the preorder vector and incrementing a counter whenever
+   * a node with a left child is encountered.
+   *
+   * \return The number of internal nodes in the tree.
+   */
+  inlined unsigned TreeManip::countInternals() const {
+    unsigned m = 0;
+    for (auto nd : _tree->_preorder) {
+      if (nd->_left_child)
+        m++;
+    }
+    return m;
   }
 
   /**

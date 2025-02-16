@@ -5,6 +5,7 @@
 #include "lot.hpp"
 #include "xstrom.hpp"
 #include "likelihood.hpp"
+#include "topo_prior_calculator.hpp"
 
 namespace strom
 {
@@ -31,6 +32,7 @@ namespace strom
     void setTuning(bool on);
     void setTargetAcceptanceRate(double target);
     void setPriorParameters(const std::vector<double> &c);
+    void setTopologyPriorOptions(bool resclass, double C);
     void setWeight(double w);
     void calcProb(double wsum);
 
@@ -74,6 +76,7 @@ namespace strom
     std::vector<double> _prior_parameters;
 
     double _heating_power;
+    mutable PolytomyTopoPriorCalculator _topo_prior_calculator;
 
     static const double _log_zero;
   };
@@ -304,24 +307,28 @@ namespace strom
   {
     Tree::SharedPtr tree = _tree_manipulator->getTree();
     assert(tree);
-    unsigned n = tree->numLeaves();
     if (tree->isRooted())
-      n++;
-    double log_topology_prior = -std::lgamma(2 * n - 5 + 1) + (n - 3) * std::log(2) + std::lgamma(n - 3 + 1);
+      _topo_prior_calculator.chooseUnrooted();
+    else
+      _topo_prior_calculator.chooseUnrooted();
+    _topo_prior_calculator.setNTax(tree->numLeaves());
+    unsigned m = tree->numInternals();
+
+    double log_topology_prior = _topo_prior_calculator.getLogNormalizedTopologyPrior(m)
     return log_topology_prior;
   }
 
   // function to calulcate the prior of tree lengths (GammaDir prior)
   inline double Updater::calcLogEdgeLengthPrior() const
   {
+    double log_prior = 0.0;
     Tree::SharedPtr tree = _tree_manipulator->getTree();
     assert(tree);
 
     double TL = _tree_manipulator->calcTreeLength();
-    double n = tree->numLeaves();
-    double num_edges = 2.0 * n - (tree->isRooted() ? 2.0 : 3.0);
+    // double n = tree->numLeaves();
+    double num_edges = _tree_manipulator->countEdges();
 
-    assert(_prior_parameters.size() == 3);
     double a = _prior_parameters[0]; // shape of Gamma prior on TL
     double b = _prior_parameters[1]; // scale of Gamma prior on TL
     double c = _prior_parameters[2]; // parameter of Dirichlet prior on edge lengths
@@ -353,6 +360,14 @@ namespace strom
 
     double log_prior = log_gamma_prior_on_TL + log_edge_length_proportions_prior;
     return log_prior;
+  }
+
+  inline void Updater::setTopologyPriorOptions(bool resclass, double C) {
+    _topo_prior_calculator.setC(C);
+    if (resclass)
+      _topo_prior_calculator.chooseResolutionClassPrior();
+    else
+      _topo_prior_calculator.choosePolytomyPrior();
   }
 
   // function that return the value stored in the static member _log_zero

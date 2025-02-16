@@ -56,6 +56,11 @@ namespace strom
     unsigned getTreeIndex() const;
     bool isFixedTree() const;
 
+    void setTopologyPriorOptions(bool allow_polytomies, bool resclass, double C);
+    bool isResolutionClassTopologyPrior() const;
+    double getTopologyPriorC() const;
+    bool isAllowPolytomies() const;
+
     unsigned getNumSubsets() const;
     unsigned getNumSites() const;
     unsigned getSubsetNumSites(unsigned subset) const;
@@ -102,6 +107,10 @@ namespace strom
     bool _tree_index;
     bool _tree_fixed;
 
+    bool _allow_polytomies;
+    bool _resolution_class_prior;
+    double _topo_prior_C;
+
     bool _subset_relrates_fixed;
     subset_relrate_vect_t _subset_relrates;
 
@@ -132,6 +141,9 @@ namespace strom
     _num_sites = 0;
     _tree_index = 0;
     _tree_fixed = false;
+    _allow_polytomies = true;
+    _resolution_class_prior = true;
+    _topo_prior_C = 1.0;
     _subset_relrates_fixed = false;
     _subset_relrates.clear();
     _subset_sizes.clear();
@@ -139,6 +151,19 @@ namespace strom
     _subset_datatypes.clear();
     _qmatrix.clear();
     _asrv.clear();
+  }
+
+  /**
+   * Sets the topology prior options for the model. The options are:
+   * \param allow_polytomies Whether to allow polytomies in the tree.
+   * \param resclass Whether to use a resolution class prior or a polytomy prior.
+   * \param C The parameter for the polytomy prior.
+   */
+  inline void Model::setTopologyPriorOptions(bool allow_polytomies, bool resclass, double C)
+  {
+    _allow_polytomies = allow_polytomies;
+    _resolution_class_prior = resclass;
+    _topo_prior_C = C;
   }
 
   inline Model::state_freq_params_t &Model::getStateFreqParams()
@@ -164,6 +189,36 @@ namespace strom
   inline Model::pinvar_params_t &Model::getPinvarParams()
   {
     return _pinvar_params;
+  }
+
+  /**
+   * \brief Checks if polytomies are allowed in the tree.
+   *
+   * \return True if polytomies are allowed, false otherwise.
+   */
+  inline bool Model::isAllowPolytomies() const
+  {
+    return _allow_polytomies;
+  }
+
+  /**
+   * \brief Checks if the resolution class topology prior is enabled.
+   *
+   * \return True if the resolution class topology prior is set, false otherwise.
+   */
+  inline bool Model::isResolutionClassTopologyPrior() const
+  {
+    return _resolution_class_prior;
+  }
+
+  /**
+   * \brief Gets the parameter C for the resolution class topology prior.
+   *
+   * \return The parameter C for the resolution class topology prior.
+   */
+  inline double Model::getTopologyPriorC() const
+  {
+    return _topo_prior_C;
   }
 
   // function that revelas the current state of the model

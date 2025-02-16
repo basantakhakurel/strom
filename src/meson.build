@@ -16,7 +16,6 @@ lib_ncl = cpp.find_library('ncl', dirs: ['/home/basanta/lib/static'], required: 
 lib_beagle = cpp.find_library('hmsbeagle', dirs: ['/home/basanta/lib'], required: true)
 incl_beagle = include_directories('/home/basanta/include/libhmsbeagle-1')
 incl_ncl = include_directories('/home/basanta/include')
-incl_boost = include_directories('/home/basanta/Documents/libraries/boost_1_86_0')
 incl_eigen = include_directories('/home/basanta/Documents/libraries/eigen-3.4.0')
 
 executable(
@@ -25,7 +24,7 @@ executable(
   install: true,
   install_dir: get_option('prefix'),
   dependencies: [lib_beagle, lib_ncl, lib_program_options, lib_filesystem],
-  include_directories: [incl_beagle, incl_ncl, incl_boost, incl_eigen],
+  include_directories: [incl_beagle, incl_ncl, incl_eigen],
 )
 install_data('strom.conf', install_dir: get_option('prefix'))
 install_data('rbcl10.nex', install_dir: get_option('prefix'))

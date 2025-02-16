@@ -16,6 +16,7 @@
 #include "exchangeability_updater.hpp"
 #include "subset_relrate_updater.hpp"
 #include "tree_updater.hpp"
+#include "polytomy_updater.hpp"
 #include "tree_length_updater.hpp"
 
 namespace strom
@@ -118,7 +119,7 @@ namespace strom
     assert(_updaters.size() > 0);
     if (!_tree_manipulator)
       _tree_manipulator.reset(new TreeManip);
-    _tree_manipulator->buildFromNewick(newick, false, false);
+    _tree_manipulator->buildFromNewick(newick, false, true);
     for (auto u : _updaters)
       u->setTreeManip(_tree_manipulator);
   }
@@ -147,7 +148,15 @@ namespace strom
     double wstd = 1.0;
     double wtreelength = 1.0;
     double wtreetopology = 19.0;
+    double wpolytomy = 0.0;
     double sum_weights = 0.0;
+
+    if (_model->isAllowPolytomies()) {
+      wstd = 1.0;
+      wtreelength = 2.0;
+      wtreetopology = 9.0;
+      wpolytomy = 9.0;
+    }
 
     // Add state frequency parameter updaters to _updaters
     Model::state_freq_params_t &statefreq_shptr_vect = _model->getStateFreqParams();
@@ -251,9 +260,22 @@ namespace strom
       u->setLambda(0.5);
       u->setTargetAcceptanceRate(0.3);
       u->setPriorParameters({tree_length_shape, tree_length_scale, dirichlet_param});
+      u->setTopologyPriorOptions(_model->isResolutionClassTopologyPrior(), _model->getTopologyPriorC());
       u->setWeight(wtreetopology);
       sum_weights += wtreetopology;
       _updaters.push_back(u);
+
+      if (_model->isAllowPolytomies()) {
+        Updater::SharedPtr u = PolytomyUpdater::SharedPtr(new PolytomyUpdater());
+        u->setLikelihood(likelihood);
+        u->setLot(lot);
+        u->setLambda(0.5);
+        u->setTargetAcceptanceRate(0.5);
+        u->setPriorParameters({tree_length_shape, tree_length_scale, dirichlet_param});
+        u->setTopologyPriorOptions(_model->isResolutionClassTopologyPrior(), _model->getTopologyPriorC());
+        u->setWeight(wpolytomy); sum_weights += wpolytomy;
+        _updaters.push_back(u);
+      }
 
       u = TreeLengthUpdater::SharedPtr(new TreeLengthUpdater());
       u->setLikelihood(likelihood);
@@ -261,6 +283,7 @@ namespace strom
       u->setLambda(0.2);
       u->setTargetAcceptanceRate(0.3);
       u->setPriorParameters({tree_length_shape, tree_length_scale, dirichlet_param});
+      u->setTopologyPriorOptions(_model->isResolutionClassTopologyPrior(), _model->getTopologyPriorC());
       u->setWeight(wtreelength);
       sum_weights += wtreelength;
       _updaters.push_back(u);
@@ -398,7 +421,7 @@ namespace strom
     double lnP = 0.0;
     for (auto u : _updaters)
     {
-      if (u->_name != "Tree Length")
+      if (u->_name != "Tree Length" && u->_name != "Polytomies")
         lnP += u->calcLogPrior();
     }
     return lnP;

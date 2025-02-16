@@ -48,6 +48,10 @@ namespace strom
 
     double _expected_log_likelihood;
 
+    double _topo_prior_C;
+    bool _allow_polytomies;
+    bool _resolution_class_prior;
+
     std::string _data_file_name;
     std::string _tree_file_name;
     Partition::SharedPtr _partition;
@@ -138,6 +142,10 @@ namespace strom
     _sample_freq = 1;
     _output_manager = nullptr;
 
+    _topo_prior_C = 1.0;
+    _allow_polytomies = true;
+    _resolution_class_prior = true;
+
     _using_stored_data = true;
     _likelihoods.clear();
     _num_burnin_iter = 1000;
@@ -175,7 +183,7 @@ namespace strom
     std::vector<std::string> partition_tree;
     boost::program_options::variables_map vm;
     boost::program_options::options_description desc("Allowed options");
-    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("seed,z", boost::program_options::value(&_random_seed)->default_value(1), "pseudorandom number seed")("niter,n", boost::program_options::value(&_num_iter)->default_value(1000), "number of MCMC iterations")("printfreq", boost::program_options::value(&_print_freq)->default_value(1), "skip this many iterations before reporting progress")("samplefreq", boost::program_options::value(&_sample_freq)->default_value(1), "skip this many iterations before sampling next")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("nchains", boost::program_options::value(&_num_chains)->default_value(1), "number of chains")("heatfactor", boost::program_options::value(&_heating_lambda)->default_value(0.5), "determines how hot the heated chains are")("burnin", boost::program_options::value(&_num_burnin_iter)->default_value(100), "number of iterations used to burn in chains")("usedata", boost::program_options::value(&_using_stored_data)->default_value(true), "use the stored data in calculating likelihoods (specify no to explore the prior)")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
+    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("seed,z", boost::program_options::value(&_random_seed)->default_value(1), "pseudorandom number seed")("niter,n", boost::program_options::value(&_num_iter)->default_value(1000), "number of MCMC iterations")("printfreq", boost::program_options::value(&_print_freq)->default_value(1), "skip this many iterations before reporting progress")("samplefreq", boost::program_options::value(&_sample_freq)->default_value(1), "skip this many iterations before sampling next")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("topopriorC", boost::program_options::value(&_topo_prior_C)->default_value(1.0), "topology prior C: tree (or resolution class) with m internal nodes has probability C time greater than tree (or resolution class) with m+1 internal nodes.")("allowpolytomies", boost::program_options::value(&_allow_polytomies)->default_value(true), "yes or no; if yes, then topopriorC and polytomyprior are used, otherwise topopriorC and polytomyprior are ignored")("resclassprior", boost::program_options::value(&_resolution_class_prior)->default_value(true), "if yes, topologypriorC will apply to resolution classes; if no, topologypriorC will apply to individual tree topologies")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("nchains", boost::program_options::value(&_num_chains)->default_value(1), "number of chains")("heatfactor", boost::program_options::value(&_heating_lambda)->default_value(0.5), "determines how hot the heated chains are")("burnin", boost::program_options::value(&_num_burnin_iter)->default_value(100), "number of iterations used to burn in chains")("usedata", boost::program_options::value(&_using_stored_data)->default_value(true), "use the stored data in calculating likelihoods (specify no to explore the prior)")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
 
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
     try
@@ -616,6 +624,7 @@ namespace strom
       double logLike = chain.getLogLikelihood();
       double logPrior = chain.calcLogJointPrior();
       double TL = chain.getTreeManip()->calcTreeLength();
+      unsigned m = chain.getTreeManip()->calcResolutionClass();
       if (time_to_report)
       {
         if (logPrior == Updater::getLogZero())
@@ -626,7 +635,7 @@ namespace strom
       if (time_to_sample)
       {
         _output_manager->outputTree(iteration, chain.getTreeManip());
-        _output_manager->outputParameters(iteration, logLike, logPrior, TL, chain.getModel());
+        _output_manager->outputParameters(iteration, logLike, logPrior, TL, m, chain.getModel());
       }
     }
   }
@@ -763,6 +772,7 @@ namespace strom
       auto m = likelihood->getModel();
 
       // Finish setting up models
+      m->setTopologyPriorOptions(_allow_polytomies, _resolution_class_prior, _topo_prior_C);
       m->setSubsetNumPatterns(_data->calcNumPatternsVect());
       m->setSubsetSizes(_partition->calcSubsetSizes());
       m->activate();
