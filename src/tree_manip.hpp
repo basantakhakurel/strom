@@ -1296,7 +1296,7 @@ inline void TreeManip::rectifyNumInternals(int incr) {
    *
    * \return The number of internal nodes in the tree.
    */
-  inlined unsigned TreeManip::countInternals() const {
+  inline unsigned TreeManip::countInternals() const {
     unsigned m = 0;
     for (auto nd : _tree->_preorder) {
       if (nd->_left_child)

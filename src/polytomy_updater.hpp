@@ -13,6 +13,7 @@ namespace strom
     friend class Chain;
 
   public:
+
     typedef std::vector<double> _partition_vect_t;
     typedef std::map<unsigned, _partition_vect_t> _partition_map_t;
     typedef std::vector<Node *> _polytomy_vect_t;
@@ -31,7 +32,7 @@ namespace strom
     void proposeAddEdgeMove(Node *nd);
     void proposeDeleteEdgeMove(Node *nd);
 
-    _partition_vect_t &computePolytomyPartition(unsigned nspokes);
+    _partition_vect_t &computePolytomyDistribution(unsigned nspokes);
     void refreshPolytomies();
 
     _partition_map_t _poly_prob;
@@ -54,7 +55,7 @@ namespace strom
     double _phi;
     unsigned _polytomy_size;
     unsigned _num_polytomies;
-  }
+  };
 
   inline PolytomyUpdater::PolytomyUpdater()
   {
@@ -112,7 +113,7 @@ namespace strom
     Tree::SharedPtr tree = _tree_manipulator->getTree();
 
     // probability of choosing and add-edge move of both add-edge and delete-edge are possible
-    const double _prob_add_age = 0.5;
+    const double _prob_add_edge = 0.5;
 
     // compute number of internal nodes in a fully resolved tree
     unsigned num_internals_in_fully_resolved_tree = 0;

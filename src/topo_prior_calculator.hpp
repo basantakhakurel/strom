@@ -166,7 +166,7 @@ namespace strom
 
   // function to recompute the _counts vector for the supplied number of internal nodes
   // uses the method of Felsenstein (2004) and Felsenstein (1978)
-  void PolytomyTopoPriorCalculator::recalcCountsAndPriorsImpl(unsigned m)
+  void PolytomyTopoPriorCalculator::recalcCountsAndPriorsImpl(unsigned n)
   {
     if (_is_resolution_class_prior)
       _counts_dirty = true;

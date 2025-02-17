@@ -314,7 +314,7 @@ namespace strom
     _topo_prior_calculator.setNTax(tree->numLeaves());
     unsigned m = tree->numInternals();
 
-    double log_topology_prior = _topo_prior_calculator.getLogNormalizedTopologyPrior(m)
+    double log_topology_prior = _topo_prior_calculator.getLogNormalizedTopologyPrior(m);
     return log_topology_prior;
   }
 
@@ -358,7 +358,7 @@ namespace strom
       log_edge_length_proportions_prior -= std::lgamma(c) * num_edges;
     }
 
-    double log_prior = log_gamma_prior_on_TL + log_edge_length_proportions_prior;
+    log_prior = log_gamma_prior_on_TL + log_edge_length_proportions_prior;
     return log_prior;
   }
 
