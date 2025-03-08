@@ -1,3 +1,3 @@
 #!/bin/bash
 
-LD_LIBRARY_PATH="$HOME/lib:$LD_LIBRARY_PATH" ./strom $@
+DYLD_LIBRARY_PATH="/usr/local/lib:$DYLD_LIBRARY_PATH" ./strom $@
