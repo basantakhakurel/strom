@@ -49,6 +49,10 @@ namespace strom
     void setHeatingPower(double p);
     double getHeatingPower() const;
 
+    void setNextHeatingPower(double p);
+    void storeLogLikelihood();
+    double calcLogSteppingstoneRatio() const;
+
     void setChainIndex(unsigned idx);
     double getChainIndex() const;
 
@@ -75,6 +79,11 @@ namespace strom
 
     unsigned _chain_index;
     double _heating_power;
+
+    bool _heat_likelihood_only;
+    double _next_heating_power;
+    std::vector<double> _ss_loglikes;
+
     double _log_likelihood;
   };
 
@@ -97,6 +106,9 @@ namespace strom
     _updaters.clear();
     _chain_index = 0;
     setHeatingPower(1.0);
+    _heat_likelihood_only = false;
+    _next_heating_power = 1.0;
+    _ss_loglikes.clear();
     startTuning();
   }
 
@@ -151,7 +163,8 @@ namespace strom
     double wpolytomy = 0.0;
     double sum_weights = 0.0;
 
-    if (_model->isAllowPolytomies()) {
+    if (_model->isAllowPolytomies())
+    {
       wstd = 1.0;
       wtreelength = 2.0;
       wtreetopology = 9.0;
@@ -265,7 +278,8 @@ namespace strom
       sum_weights += wtreetopology;
       _updaters.push_back(u);
 
-      if (_model->isAllowPolytomies()) {
+      if (_model->isAllowPolytomies())
+      {
         Updater::SharedPtr u = PolytomyUpdater::SharedPtr(new PolytomyUpdater());
         u->setLikelihood(likelihood);
         u->setLot(lot);
@@ -273,7 +287,8 @@ namespace strom
         u->setTargetAcceptanceRate(0.5);
         u->setPriorParameters({tree_length_shape, tree_length_scale, dirichlet_param});
         u->setTopologyPriorOptions(_model->isResolutionClassTopologyPrior(), _model->getTopologyPriorC());
-        u->setWeight(wpolytomy); sum_weights += wpolytomy;
+        u->setWeight(wpolytomy);
+        sum_weights += wpolytomy;
         _updaters.push_back(u);
       }
 
@@ -326,6 +341,40 @@ namespace strom
     _heating_power = p;
     for (auto u : _updaters)
       u->setHeatingPower(p);
+  }
+
+  inline void Chain::setNextHeatingPower(double p)
+  {
+    _heat_likelihood_only = true; // next heating power only set if doing steppingstone
+    for (auto u : _updaters)
+      u->setHeatLikelihoodOnly(true);
+    _next_heating_power = p;
+  }
+
+  inline void Chain::storeLogLikelihood()
+  {
+    double logLike = getLogLikelihood();
+    _ss_loglikes.push_back(logLike);
+  }
+
+  inline double Chain::calcLogSteppingstoneRatio() const
+  {
+    // Fing the maximum log likelihood sampled by this chain
+    unsigned sample_size = (unsigned)_ss_loglikes.size();
+    assert(sample_size > 0);
+    double maxLogL = *(std::max_element(_ss_loglikes.begin(), _ss_loglikes.end()));
+
+    // Compute sum, factoring out maxlnL
+    double sum_of_terms = 0.0;
+    for (auto logL : _ss_loglikes)
+    {
+      sum_of_terms += exp((_next_heating_power - _heating_power) * (logL - maxLogL));
+    }
+
+    // Compute the log of the steppingstone ratio
+    assert(sum_of_terms > 0.0);
+    double log_ratio = (_next_heating_power - _heating_power) * maxLogL + log(sum_of_terms) - log(sample_size);
+    return log_ratio;
   }
 
   // functions to set and get the chain index

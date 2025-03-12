@@ -37,6 +37,7 @@ namespace strom
     void showBeagleInfo();
     void showMCMCInfo();
     void calcHeatingPowers();
+    void calcMarginalLikelihood() const;
     void initChains();
     void startTuningChains();
     void stopTuningChains();
@@ -58,8 +59,6 @@ namespace strom
 
     Data::SharedPtr _data;
     std::vector<Likelihood::SharedPtr> _likelihoods;
-    // Model::SharedPtr _model;
-    // Likelihood::SharedPtr _likelihood;
     TreeSummary::SharedPtr _tree_summary;
     Lot::SharedPtr _lot;
 
@@ -69,15 +68,18 @@ namespace strom
     unsigned _sample_freq;
 
     unsigned _num_burnin_iter;
+    bool _using_stored_data;
+    bool _use_gpu;
+    bool _steppingstone;
+    double _ss_alpha;
+
+    bool _ambig_missing;
     unsigned _num_chains;
     double _heating_lambda;
-    bool _using_stored_data;
     std::vector<Chain> _chains;
     std::vector<double> _heating_powers;
     std::vector<unsigned> _swaps;
 
-    bool _use_gpu;
-    bool _ambig_missing;
     bool _use_underflow_scaling;
 
     static std::string _program_name;
@@ -129,11 +131,11 @@ namespace strom
     _tree_summary = nullptr;
     _partition.reset(new Partition());
     _use_gpu = true;
+    _steppingstone = false;
+    _ss_alpha = 0.25;
     _ambig_missing = true;
-    // _model.reset(new Model());
     _expected_log_likelihood = 0.0;
     _data = nullptr;
-    // _likelihood = nullptr;
     _use_underflow_scaling = false;
     _lot = nullptr;
     _random_seed = 1;
@@ -183,7 +185,7 @@ namespace strom
     std::vector<std::string> partition_tree;
     boost::program_options::variables_map vm;
     boost::program_options::options_description desc("Allowed options");
-    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("seed,z", boost::program_options::value(&_random_seed)->default_value(1), "pseudorandom number seed")("niter,n", boost::program_options::value(&_num_iter)->default_value(1000), "number of MCMC iterations")("printfreq", boost::program_options::value(&_print_freq)->default_value(1), "skip this many iterations before reporting progress")("samplefreq", boost::program_options::value(&_sample_freq)->default_value(1), "skip this many iterations before sampling next")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("topopriorC", boost::program_options::value(&_topo_prior_C)->default_value(1.0), "topology prior C: tree (or resolution class) with m internal nodes has probability C time greater than tree (or resolution class) with m+1 internal nodes.")("allowpolytomies", boost::program_options::value(&_allow_polytomies)->default_value(true), "yes or no; if yes, then topopriorC and polytomyprior are used, otherwise topopriorC and polytomyprior are ignored")("resclassprior", boost::program_options::value(&_resolution_class_prior)->default_value(true), "if yes, topologypriorC will apply to resolution classes; if no, topologypriorC will apply to individual tree topologies")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("nchains", boost::program_options::value(&_num_chains)->default_value(1), "number of chains")("heatfactor", boost::program_options::value(&_heating_lambda)->default_value(0.5), "determines how hot the heated chains are")("burnin", boost::program_options::value(&_num_burnin_iter)->default_value(100), "number of iterations used to burn in chains")("usedata", boost::program_options::value(&_using_stored_data)->default_value(true), "use the stored data in calculating likelihoods (specify no to explore the prior)")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)");
+    desc.add_options()("help,h", "produce help message")("version,v", "show program version")("seed,z", boost::program_options::value(&_random_seed)->default_value(1), "pseudorandom number seed")("niter,n", boost::program_options::value(&_num_iter)->default_value(1000), "number of MCMC iterations")("printfreq", boost::program_options::value(&_print_freq)->default_value(1), "skip this many iterations before reporting progress")("samplefreq", boost::program_options::value(&_sample_freq)->default_value(1), "skip this many iterations before sampling next")("datafile,d", boost::program_options::value(&_data_file_name)->required(), "name of a data file in NEXUS format")("treefile,t", boost::program_options::value(&_tree_file_name)->required(), "name of a tree file in NEXUS format")("subset", boost::program_options::value(&partition_subsets), "a string defining a partition subset, e.g. 'first:1-1234\3' or 'default[codon:standard]:1-3702'")("ncateg,c", boost::program_options::value(&partition_ncateg), "number of categories in the discrete Gamma rate heterogeneity model")("statefreq", boost::program_options::value(&partition_statefreq), "a string defining state frequencies for one or more data subsets, e.g. 'first,second:0.1,0.2,0.3,0.4'")("omega", boost::program_options::value(&partition_omega), "a string defining the nonsynonymous/synonymous rate ratio omega for one or more data subsets, e.g. 'first,second:0.1'")("rmatrix", boost::program_options::value(&partition_rmatrix), "a string defining the rmatrix for one or more data subsets, e.g. 'first,second:1,2,1,1,2,1'")("ratevar", boost::program_options::value(&partition_ratevar), "a string defining the among-site rate variance for one or more data subsets, e.g. 'first,second:2.5'")("pinvar", boost::program_options::value(&partition_pinvar), "a string defining the proportion of invariable sites for one or more data subsets, e.g. 'first,second:0.2'")("relrate", boost::program_options::value(&partition_relrates), "a string defining the (unnormalized) relative rates for all data subsets (e.g. 'default:3,1,6').")("tree", boost::program_options::value(&partition_tree), "the index of the tree in the tree file (first tree has index = 1)")("topopriorC", boost::program_options::value(&_topo_prior_C)->default_value(1.0), "topology prior C: tree (or resolution class) with m internal nodes has probability C time greater than tree (or resolution class) with m+1 internal nodes.")("allowpolytomies", boost::program_options::value(&_allow_polytomies)->default_value(true), "yes or no; if yes, then topopriorC and polytomyprior are used, otherwise topopriorC and polytomyprior are ignored")("resclassprior", boost::program_options::value(&_resolution_class_prior)->default_value(true), "if yes, topologypriorC will apply to resolution classes; if no, topologypriorC will apply to individual tree topologies")("expectedLnL", boost::program_options::value(&_expected_log_likelihood)->default_value(0.0), "log likelihood expected")("nchains", boost::program_options::value(&_num_chains)->default_value(1), "number of chains")("heatfactor", boost::program_options::value(&_heating_lambda)->default_value(0.5), "determines how hot the heated chains are")("burnin", boost::program_options::value(&_num_burnin_iter)->default_value(100), "number of iterations used to burn in chains")("usedata", boost::program_options::value(&_using_stored_data)->default_value(true), "use the stored data in calculating likelihoods (specify no to explore the prior)")("gpu", boost::program_options::value(&_use_gpu)->default_value(true), "use GPU if available")("ambigmissing", boost::program_options::value(&_ambig_missing)->default_value(true), "treat all ambiguities as missing data")("underflowscaling", boost::program_options::value(&_use_underflow_scaling)->default_value(false), "scale site-likelihoods to prevent underflow (slower but safer)")("steppingstone", boost::program_options::value(&_steppingstone)->default_value(false), "use heated chains to compute marginal likelihood with the steppingstone method")("ssalpha", boost::program_options::value(&_ss_alpha)->default_value(0.25), "determines how bunched steppingstone chain powers are toward the prior: chain k of K total chains has power (k/K)^{1/ssalpha}");
 
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
     try
@@ -565,9 +567,13 @@ namespace strom
       // Create an output manager and open output files
       _output_manager.reset(new OutputManager);
       _output_manager->outputConsole(boost::str(boost::format("\n%12s %12s %12s %12s") % "iteration" % "logLike" % "logPrior" % "TL"));
-      _output_manager->openTreeFile("trees.tre", _data);
-      _output_manager->openParameterFile("params.txt", _chains[0].getModel());
+      if (!_steppingstone)
+      {
+        _output_manager->openTreeFile("trees.tre", _data);
+        _output_manager->openParameterFile("params.txt", _chains[0].getModel());
+      }
       sample(0, _chains[0]);
+
       // Burn-in the chains
       startTuningChains();
       for (unsigned iteration = 1; iteration <= _num_burnin_iter; ++iteration)
@@ -589,9 +595,15 @@ namespace strom
       // Create swap summary
       swapSummary();
 
+      // Estimate the marginal likelihood if doing steppingstone
+      calcMarginalLikelihood();
+
       // Close output files
-      _output_manager->closeTreeFile();
-      _output_manager->closeParameterFile();
+      if (!_steppingstone)
+      {
+        _output_manager->closeTreeFile();
+        _output_manager->closeParameterFile();
+      }
     }
     catch (XStrom &x)
     {
@@ -614,28 +626,60 @@ namespace strom
    */
   inline void Strom::sample(unsigned iteration, Chain &chain)
   {
-    if (chain.getHeatingPower() < 1.0)
-      return;
-
-    bool time_to_sample = (bool)(iteration % _sample_freq == 0);
-    bool time_to_report = (bool)(iteration % _print_freq == 0);
-    if (time_to_sample || time_to_report)
+    if (_steppingstone)
     {
-      double logLike = chain.getLogLikelihood();
-      double logPrior = chain.calcLogJointPrior();
-      double TL = chain.getTreeManip()->calcTreeLength();
-      unsigned m = chain.getTreeManip()->calcResolutionClass();
+      bool time_to_sample = (bool)(iteration % _sample_freq == 0);
+      if (time_to_sample && iteration > 0)
+      {
+        chain.storeLogLikelihood();
+      }
+
+      assert(_heating_powers.size() > 0);
+      double largest_power = *(_heating_powers.rbegin());
+      if (chain.getHeatingPower() != largest_power)
+        return;
+
+      bool time_to_report = (bool)(iteration % _print_freq == 0);
       if (time_to_report)
       {
-        if (logPrior == Updater::getLogZero())
-          _output_manager->outputConsole(boost::str(boost::format("%12d %12.5f %12s %12.5f") % iteration % logLike % "-infinity" % TL));
-        else
-          _output_manager->outputConsole(boost::str(boost::format("%12d %12.5f %12.5f %12.5f") % iteration % logLike % logPrior % TL));
+        double logLike = chain.getLogLikelihood();
+        double logPrior = chain.calcLogJointPrior();
+        double TL = chain.getTreeManip()->calcTreeLength();
+        unsigned m = chain.getTreeManip()->calcResolutionClass();
+        if (time_to_report)
+        {
+          if (logPrior == Updater::getLogZero())
+            _output_manager->outputConsole(boost::str(boost::format("%12d %12d %12.5f %12s %12.5f") % iteration % m % logLike % "-infinity" % TL));
+          else
+            _output_manager->outputConsole(boost::str(boost::format("%12d %12d %12.5f %12.5f %12.5f") % iteration % m % logLike % logPrior % TL));
+        }
       }
-      if (time_to_sample)
+    }
+    else
+    {
+      if (chain.getHeatingPower() < 1.0)
+        return;
+
+      bool time_to_sample = (bool)(iteration % _sample_freq == 0);
+      bool time_to_report = (bool)(iteration % _print_freq == 0);
+      if (time_to_sample || time_to_report)
       {
-        _output_manager->outputTree(iteration, chain.getTreeManip());
-        _output_manager->outputParameters(iteration, logLike, logPrior, TL, m, chain.getModel());
+        double logLike = chain.getLogLikelihood();
+        double logPrior = chain.calcLogJointPrior();
+        double TL = chain.getTreeManip()->calcTreeLength();
+        unsigned m = chain.getTreeManip()->calcResolutionClass();
+        if (time_to_report)
+        {
+          if (logPrior == Updater::getLogZero())
+            _output_manager->outputConsole(boost::str(boost::format("%12d %12.5f %12s %12.5f") % iteration % logLike % "-infinity" % TL));
+          else
+            _output_manager->outputConsole(boost::str(boost::format("%12d %12.5f %12.5f %12.5f") % iteration % logLike % logPrior % TL));
+        }
+        if (time_to_sample)
+        {
+          _output_manager->outputTree(iteration, chain.getTreeManip());
+          _output_manager->outputParameters(iteration, logLike, logPrior, TL, m, chain.getModel());
+        }
       }
     }
   }
@@ -729,17 +773,44 @@ namespace strom
    */
   inline void Strom::calcHeatingPowers()
   {
-    // Specify chain heating power (e.g. _heating_lambda = 0.2)
-    // chain_index  power
-    //      0       1.000 = 1/(1 + 0.2*0)
-    //      1       0.833 = 1/(1 + 0.2*1)
-    //      2       0.714 = 1/(1 + 0.2*2)
-    //      3       0.625 = 1/(1 + 0.2*3)
-    unsigned i = 0;
-    for (auto &h : _heating_powers)
+    if (_steppingstone)
     {
-      h = 1.0 / (1.0 + _heating_lambda * i++);
+      // Specify chain heating power for steppingstone
+      // For K = 5 chains and alpha = 0.25 (1/alpha = 4):
+      //  k   chain power
+      // ---------------------
+      //   0   (0/5)^4 = 0.0000 <-- prior
+      //   1   (1/5)^4 = 0.0016
+      //   2   (2/5)^4 = 0.0256
+      //   3   (3/5)^4 = 0.1296
+      //   4   (4/5)^4 = 0.4096
+      //   5   (5/5)^4 = 1.0000 <-- posterior not used
+      double inv_alpha = 1.0 / _ss_alpha;
+      double k = 0.0;
+      double K = (double)_heating_powers.size();
+      for (auto &h : _heating_powers)
+      {
+        h = pow(k++ / K, inv_alpha);
+      }
     }
+    else
+    {
+      // Specify chain heating power (e.g. _heating_lambda = 0.2)
+      // chain_index  power
+      //      0       1.000 = 1/(1 + 0.2*0)
+      //      1       0.833 = 1/(1 + 0.2*1)
+      //      2       0.714 = 1/(1 + 0.2*2)
+      //      3       0.625 = 1/(1 + 0.2*3)
+      unsigned i = 0;
+      for (auto &h : _heating_powers)
+      {
+        h = 1.0 / (1.0 + _heating_lambda * i++);
+      }
+    }
+  }
+
+  inline void Strom::calcMarginalLikelihood() const
+  {
   }
 
   /**
@@ -799,6 +870,13 @@ namespace strom
       // Set heating power to precalculated value
       c.setChainIndex(chain_index);
       c.setHeatingPower(_heating_powers[chain_index]);
+      if (_steppingstone)
+      {
+        if (chain_index == _num_chains - 1)
+          c.setNextHeatingPower(1.0);
+        else
+          c.setNextHeatingPower(_heating_powers[chain_index + 1]);
+      }
 
       // Give the chain a starting tree
       std::string newick = _tree_summary->getNewick(m->getTreeIndex());

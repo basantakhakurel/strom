@@ -29,6 +29,7 @@ namespace strom
     void setLot(Lot::SharedPtr lot);
     void setLambda(double lambda);
     void setHeatingPower(double p);
+    void setHeatLikelihoodOnly(bool yes);
     void setTuning(bool on);
     void setTargetAcceptanceRate(double target);
     void setPriorParameters(const std::vector<double> &c);
@@ -75,6 +76,7 @@ namespace strom
     bool _tuning;
     std::vector<double> _prior_parameters;
 
+    bool _heat_likelihood_only;
     double _heating_power;
     mutable PolytomyTopoPriorCalculator _topo_prior_calculator;
 
@@ -106,6 +108,7 @@ namespace strom
     _naccepts = 0;
     _nattempts = 0;
     _heating_power = 1.0;
+    _heat_likelihood_only = false;
     _prior_parameters.clear();
     reset();
   }
@@ -274,7 +277,8 @@ namespace strom
     {
       double log_R = 0.0;
       log_R += _heating_power * (log_likelihood - prev_lnL);
-      log_R += _heating_power * (log_prior - prev_log_prior);
+      // log_R += _heating_power * (log_prior - prev_log_prior);
+      log_R += (_heat_likelihood_only ? 1.0 : _heating_power) * (log_prior - prev_log_prior);
       log_R += _log_hastings_ratio;
       log_R += _log_jacobian;
 
@@ -362,12 +366,18 @@ namespace strom
     return log_prior;
   }
 
-  inline void Updater::setTopologyPriorOptions(bool resclass, double C) {
+  inline void Updater::setTopologyPriorOptions(bool resclass, double C)
+  {
     _topo_prior_calculator.setC(C);
     if (resclass)
       _topo_prior_calculator.chooseResolutionClassPrior();
     else
       _topo_prior_calculator.choosePolytomyPrior();
+  }
+
+  inline void Updater::setHeatLikelihoodOnly(bool yes)
+  {
+    _heat_likelihood_only = yes;
   }
 
   // function that return the value stored in the static member _log_zero
