@@ -11,23 +11,28 @@ project(
 )
 
 cpp = meson.get_compiler('cpp')
-lib_filesystem = cpp.find_library('boost_filesystem', dirs: ['/Users/basanta/lib/static'], required: true)
-lib_program_options = cpp.find_library('boost_program_options', dirs: ['/Users/basanta/lib/static'], required: true)
-lib_ncl = cpp.find_library('ncl', dirs: ['/Users/basanta/lib/static'], required: true)
-lib_beagle = cpp.find_library('hmsbeagle', dirs: ['/usr/local/lib'], required: true)
-incl_beagle = include_directories('/usr/local/include/libhmsbeagle-1')
-incl_ncl = include_directories('/Users/basanta/include')
-incl_eigen = include_directories('/Users/basanta/Documents/libraries/eigen-3.4.0')
+home_dir = '/home/basanta'
+
+boost_dep = dependency('boost', modules: ['filesystem', 'program_options'], required: true)
+lib_beagle = cpp.find_library('hmsbeagle', dirs: [home_dir + '/lib/hmsbeagle'], required: true)
+lib_ncl = cpp.find_library('ncl', dirs: [home_dir + '/lib/ncl'], required: true)
+incl_beagle = include_directories('/home/basanta/include/libhmsbeagle-1')
+incl_ncl = include_directories('/home/basanta/include')
+incl_eigen = include_directories('/home/basanta/Documents/libraries/eigen-3.4.0')
+
+beagle_lib_dir = home_dir + '/lib/hmsbeagle'
+ncl_lib_dir = home_dir + '/lib/ncl'
 
 executable(
   'strom',
   'main.cpp',
   install: true,
   install_dir: get_option('prefix'),
-  dependencies: [lib_beagle, lib_ncl, lib_program_options, lib_filesystem],
+  dependencies: [boost_dep, lib_beagle, lib_ncl],
   include_directories: [incl_beagle, incl_ncl, incl_eigen],
-  link_args: ['-Wl,-rpath,/usr/local/lib'],
+  install_rpath: beagle_lib_dir + ':' + ncl_lib_dir,
 )
+
 install_data('strom.conf', install_dir: get_option('prefix'))
 install_data('rbcl10.nex', install_dir: get_option('prefix'))
 install_data('rbcl10.tre', install_dir: get_option('prefix'))

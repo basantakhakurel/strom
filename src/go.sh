@@ -1,3 +1,9 @@
 #!/bin/bash
 
-DYLD_LIBRARY_PATH="/usr/local/lib:$DYLD_LIBRARY_PATH" ./strom $@
+LIB_PATH="/home/basanta/lib/hmsbeagle:/home/basanta/lib/ncl"
+
+export LD_LIBRARY_PATH="$LIB_PATH:$LD_LIBRARY_PATH"
+
+export BEAGLE_LIB_DIR="/home/basanta/lib/hmsbeagle"
+
+./strom "$@"
