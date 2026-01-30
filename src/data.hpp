@@ -10,6 +10,7 @@
 #include <boost/format.hpp>
 #include "genetic_code.hpp"
 #include "datatype.hpp"
+#include "ncl/nxscharactersblock.h"
 #include "partition.hpp"
 #include "xstrom.hpp"
 #include "ncl/nxsmultiformat.h"
@@ -444,6 +445,15 @@ namespace strom
       assert(charBlock->GetSymbols());
       std::string symbols = std::string(charBlock->GetSymbols());
       dt.setStandardNumStates((unsigned)symbols.size());
+    }
+    else if (datatype == NxsCharactersBlock::standard)
+    {
+      if (!dt.isStandard())
+        throw XStrom(boost::format("Partition subset has data type \"%s\" but data read from file has data type \"standard\"") % dt.getDataTypeAsString());
+      std::string symbols = std::string(charBlock->GetSymbols());
+      dt.setStandardNumStates((unsigned)symbols.size());
+
+      _partition->setSubsetDataType(subset_index, dt);
     }
     else
     {

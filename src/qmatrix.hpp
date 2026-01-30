@@ -1,9 +1,14 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <numeric>
 #include <vector>
 #include <Eigen/Dense>
+#include "Eigen/src/Core/Map.h"
+#include "Eigen/src/Core/Matrix.h"
+#include "Eigen/src/Core/util/Constants.h"
+#include "Eigen/src/Core/util/Memory.h"
 #include "genetic_code.hpp"
 #include "xstrom.hpp"
 
@@ -650,4 +655,217 @@ namespace strom
     _inverse_eigenvectors = solver.eigenvectors().transpose() * _sqrtPi;
     _eigenvalues = solver.eigenvalues();
   }
-}
+
+  // new class for standard datatype
+  class QMatrixStandard : public QMatrix
+  {
+    public:
+      typedef Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> eigenMatrixXd_t;
+      typedef Eigen::VectorXd eigenVectorXd_t;
+
+      QMatrixStandard();
+      virtual ~QMatrixStandard();
+
+      virtual void clear();
+
+      // Mk model uses equal state frequencies (1/k)
+      virtual void setEqualStateFreqs(freq_xchg_ptr_t freq_ptr);
+      virtual void setStateFreqsSharedPtr(freq_xchg_ptr_t freq_ptr);
+      virtual void setStateFreqs(freq_xchg_t &freqs);
+      virtual freq_xchg_ptr_t getStateFreqsSharedPtr();
+      virtual const double *getStateFreqs() const;
+
+      // Mk model uses equal exchangeabilities
+      virtual void setEqualExchangeabilities(freq_xchg_ptr_t xchg_ptr);
+      virtual void setExchangeabilitiesSharedPtr(freq_xchg_ptr_t xchg_ptr);
+      virtual void setExchangeabilities(freq_xchg_t &xchg);
+      virtual freq_xchg_ptr_t getExchangeabilitiesSharedPtr();
+      virtual const double *getExchangeabilities() const;
+
+      // omega not used in standard data
+      virtual void setOmegaSharedPtr(omega_ptr_t omega_ptr);
+      virtual void setOmega(omega_t omega);
+      virtual omega_ptr_t getOmegaSharedPtr();
+      virtual double getOmega() const;
+
+      virtual const double *getEigenvectors() const;
+      virtual const double *getInverseEigenvectors() const;
+      virtual const double *getEigenvalues() const;
+
+      EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    protected:
+      virtual void recalcRateMatrix();
+
+    private:
+    eigenMatrixXd_t _sqrtPi;
+    eigenMatrixXd_t _sqrtPiInv;
+    eigenMatrixXd_t _Q;
+    eigenMatrixXd_t _eigenvectors;
+    eigenMatrixXd_t _inverse_eigenvectors;
+    eigenVectorXd_t _eigenvalues;
+
+    freq_xchg_ptr_t _state_freqs;
+    freq_xchg_ptr_t _exchangeabilities;
+  };
+
+  inline QMatrixStandard::QMatrixStandard()
+  {
+    // std::cout << "Constructing a QMatrixStandard object" << std::endl;
+    clear();
+  }
+
+  inline QMatrixStandard::~QMatrixStandard()
+  {
+    // std::cout << "Destroying a QMatrixStandard object" << std::endl;
+  }
+
+  inline void QMatrixStandard::clear()
+  {
+    QMatrix::clear();
+    _state_freqs = nullptr;
+    _exchangeabilities = nullptr;
+  }
+
+  inline QMatrix::freq_xchg_ptr_t QMatrixStandard::getStateFreqsSharedPtr()
+  {
+    return _state_freqs;
+  }
+
+  inline const double *QMatrixStandard::getStateFreqs() const
+  {
+    return &(*_state_freqs)[0];
+  }
+
+  inline QMatrix::freq_xchg_ptr_t QMatrixStandard::getExchangeabilitiesSharedPtr()
+  {
+    return _exchangeabilities;
+  }
+
+  inline const double *QMatrixStandard::getExchangeabilities() const
+  {
+    return &(*_exchangeabilities)[0];
+  }
+
+  inline const double *QMatrixStandard::getEigenvectors() const
+  {
+    return _eigenvectors.data();
+  }
+
+  inline const double *QMatrixStandard::getInverseEigenvectors() const
+  {
+    return _inverse_eigenvectors.data();
+  }
+
+  inline const double *QMatrixStandard::getEigenvalues() const
+  {
+    return _eigenvalues.data();
+  }
+
+  inline void QMatrixStandard::setOmegaSharedPtr(omega_ptr_t o)
+  {
+    assert(false);
+  }
+
+  inline void QMatrixStandard::setOmega(omega_t o)
+  {
+    assert(false);
+  }
+
+  inline QMatrixStandard::omega_ptr_t QMatrixStandard::getOmegaSharedPtr()
+  {
+    return nullptr;
+  }
+
+  inline double QMatrixStandard::getOmega() const
+  {
+    return 0.0;
+  }
+
+  inline void QMatrixStandard::setEqualStateFreqs(QMatrix::freq_xchg_ptr_t freq_ptr)
+  {
+    _state_freqs = freq_ptr;
+    unsigned k = (unsigned)_state_freqs->size();
+    _state_freqs->assign(k, 1.0 / (double)k);
+    recalcRateMatrix();
+  }
+
+  inline void QMatrixStandard::setStateFreqsSharedPtr(QMatrix::freq_xchg_ptr_t freq_ptr)
+  {
+    _state_freqs = freq_ptr;
+    normalizeFreqsOrExchangeabilities(_state_freqs);
+    recalcRateMatrix();
+  }
+
+  inline void QMatrixStandard::setStateFreqs(QMatrix::freq_xchg_t &freqs)
+  {
+    std::copy(freqs.begin(), freqs.end(), _state_freqs->begin());
+    recalcRateMatrix();
+  }
+
+  inline void QMatrixStandard::setEqualExchangeabilities(QMatrix::freq_xchg_ptr_t xchg_ptr)
+  {
+    _exchangeabilities = xchg_ptr;
+    unsigned k = (unsigned)_state_freqs->size();
+    unsigned num_xchg = k*(k-1)/2;
+    _exchangeabilities->assign(num_xchg, 1.0);
+    recalcRateMatrix();
+  }
+
+  inline void QMatrixStandard::setExchangeabilitiesSharedPtr(QMatrix::freq_xchg_ptr_t xchg_ptr)
+  {
+    _exchangeabilities = xchg_ptr;
+    recalcRateMatrix();
+  }
+
+  inline void QMatrixStandard::setExchangeabilities(QMatrix::freq_xchg_t &xchg) {
+    std::copy(xchg.begin(), xchg.end(), _exchangeabilities->begin());
+    recalcRateMatrix();
+  }
+
+  inline void QMatrixStandard::recalcRateMatrix()
+  {
+    if (!_is_active || !(_state_freqs && _exchangeabilities))
+      return;
+
+    unsigned k = (unsigned)_state_freqs->size();
+    _Q.resize(k, k);
+    _eigenvectors.resize(k, k);
+    _inverse_eigenvectors.resize(k,k);
+    _eigenvalues.resize(k);
+
+    Eigen::Map<const Eigen::ArrayXd> tmp(_state_freqs->data(), k);
+    _sqrtPi = tmp.sqrt().matrix().asDiagonal();
+    _sqrtPiInv = _sqrtPi.inverse();
+
+    // fill in the Q-matrix
+    unsigned x = 0;
+    _Q.setZero();
+    for (unsigned i = 0; i < k -1; i++) {
+      for (unsigned j = i + 1; j < k; j++){
+        double rate = (*_exchangeabilities)[x++];
+        _Q(i,j) = rate * (*_state_freqs)[j];
+        _Q(j,i) = rate * (*_state_freqs)[i];
+      }
+    }
+
+    // set the diagonlas so rows sum to 0
+    for (unsigned i = 0; i < k; i++) {
+      _Q(i,i) = -_Q.row(i).sum();
+    }
+
+    // Scale so that -sum(pi_i * Q_ii) = 1.0
+    double average_rate = 0.0;
+    for (unsigned i = 0; i < k; i++)
+        average_rate -= (*_state_freqs)[i] * _Q(i, i);
+    _Q /= average_rate;
+
+    // Symmetrize and solve
+    eigenMatrixXd_t S = _sqrtPi * _Q * _sqrtPiInv;
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> solver(S);
+
+    _eigenvectors = _sqrtPiInv * solver.eigenvectors();
+    _inverse_eigenvectors = solver.eigenvectors().transpose() * _sqrtPi;
+    _eigenvalues = solver.eigenvalues();
+  }
+} // namespace strom

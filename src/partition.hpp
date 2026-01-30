@@ -47,6 +47,7 @@ namespace strom
     void defaultPartition(unsigned nsites = std::numeric_limits<unsigned>::max());
     void parseSubsetDefinition(std::string &s);
     void finalize(unsigned nsites);
+    void setSubsetDataType(unsigned subset_index, DataType dt);
 
     void clear();
 
@@ -409,6 +410,13 @@ namespace strom
     _num_sites = nsites;
     _num_subsets = 1;
     _subset_ranges[0] = std::make_tuple(1, nsites, 1, 0);
+  }
+
+  // function to set the data type for a given subset
+  inline void Partition::setSubsetDataType(unsigned subset_index, DataType dt)
+  {
+      assert(subset_index < _subset_data_types.size());
+      _subset_data_types[subset_index] = dt;
   }
 
 } // namespace strom

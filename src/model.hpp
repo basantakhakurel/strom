@@ -640,8 +640,12 @@ namespace strom
         GeneticCode::SharedPtr gcptr = _subset_datatypes[s].getGeneticCode();
         _qmatrix[s].reset(new QMatrixCodon(gcptr));
       }
+      else if (_subset_datatypes[s].isStandard())
+      {
+        _qmatrix[s].reset(new QMatrixStandard());
+      }
       else
-        throw XStrom(boost::format("Only nucleotide or codon data allowed in this version, you specified data type \"%s\" for subset %d") % _subset_datatypes[s].getDataTypeAsString() % (s + 1));
+        throw XStrom(boost::format("Unknown data type for subset for subset %d, you specified data type \"%s\" ") % (s + 1) % _subset_datatypes[s].getDataTypeAsString());
     }
   }
 
